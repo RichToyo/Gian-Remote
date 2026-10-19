@@ -157,7 +157,7 @@ describe('chat + composer (B5)', () => {
     const before = controller.state.sessions.find((s) => s.id === 's-1')!.queue.entries.length;
     const input = screen.getByRole('textbox');
     await user.type(input, 'add a timeout guard in the hook');
-    const send = screen.getByRole('button', { name: /Send/ });
+    const send = screen.getByRole('button', { name: /^Send \(queued while the turn is running\)$/ });
     await user.click(send);
     expect(controller.test.pendingCommandIds()).toHaveLength(1);
     controller.test.resolveAll();
@@ -173,7 +173,7 @@ describe('chat + composer (B5)', () => {
     const { controller } = renderApp({ scenario: {}, viewport: 'wide' });
     controller.actions.selectSession('s-2'); // visible Doing session, no active turn
     await user.type(screen.getByRole('textbox'), 'draft a checklist for me');
-    await user.click(screen.getByRole('button', { name: /Send/ }));
+    await user.click(screen.getByRole('button', { name: 'Send', exact: true }));
     controller.test.resolveAll();
     const session = controller.state.sessions.find((s) => s.id === 's-2')!;
     expect(session.status).toBe('running');
@@ -202,7 +202,7 @@ describe('chat + composer (B5)', () => {
     await user.type(input, 'keep this draft');
     expect(controller.state.drafts['s-1']!.text).toBe('keep this draft');
     // With text the merged button becomes Send, still disabled offline.
-    expect(screen.getByRole('button', { name: /Send/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Send \(queued while the turn is running\)$/ })).toBeDisabled();
     // The configuration menu remains inspectable and closable while its
     // mutation controls stay disabled.
     const picker = screen.getByRole('button', { name: /gpt-5\.3-codex/ });
@@ -317,7 +317,7 @@ describe('chat + composer (B5)', () => {
       viewport: 'wide',
     });
     await user.type(screen.getByRole('textbox'), 'hello');
-    const send = screen.getByRole('button', { name: /Send/ });
+    const send = screen.getByRole('button', { name: /^Send \(queued while the turn is running\)$/ });
     expect(send).toBeDisabled();
     controller.actions.sendDraft('s-1');
     expect(controller.test.pendingCommandIds()).toHaveLength(0);
@@ -336,7 +336,7 @@ describe('chat + composer (B5)', () => {
     const { controller } = renderApp({ scenario: {}, viewport: 'wide' });
     await user.type(screen.getByRole('textbox'), 'probe unknown');
     controller.test.scriptSend('unknown');
-    await user.click(screen.getByRole('button', { name: /Send/ }));
+    await user.click(screen.getByRole('button', { name: /^Send \(queued while the turn is running\)$/ }));
     controller.test.resolveAll();
     expect(screen.getByText(/unconfirmed/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Retry/i })).toBeNull();

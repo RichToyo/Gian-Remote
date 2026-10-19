@@ -30,7 +30,7 @@ describe('read-only file viewer (B8)', () => {
     const states: Array<[FileViewerState, RegExp]> = [
       [{ status: 'loading', handle: HANDLE }, /Loading file/],
       [{ status: 'binary', handle: HANDLE }, /Binary files cannot be previewed/],
-      [{ status: 'expired', handle: HANDLE }, /Expired/],
+      [{ status: 'expired', handle: HANDLE }, /This file reference expired/],
       [{ status: 'too_large', handle: HANDLE, limitLabel: '1 MB' }, /exceeds the preview limit \(1 MB\)/],
       [{ status: 'error', handle: HANDLE, message: 'boom' }, /boom/],
     ];

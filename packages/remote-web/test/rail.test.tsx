@@ -8,7 +8,7 @@ describe('conversation rail (B3)', () => {
     renderApp({ scenario: {}, viewport: 'wide' });
     const sidebar = document.querySelector('.sidebar')!;
     const rows = within(sidebar as HTMLElement);
-    expect(rows.getByText('In progress')).toBeInTheDocument();
+    expect(rows.getByText('Doing')).toBeInTheDocument();
     expect(rows.queryByText('Unassigned')).toBeNull();
     // The sticky list heading replaces the obsolete Chats dropdown + global +.
     const first = sidebar.querySelector('.sb-scroll')!.firstElementChild!;
@@ -77,7 +77,7 @@ describe('conversation rail (B3)', () => {
     expect(controller.state.mobilePage).toBe('rail');
     const page = document.querySelector('.rw-page[data-page="rail"]')!;
     expect(page).toBeInTheDocument();
-    expect(within(page as HTMLElement).getByText('Tasks')).toBeInTheDocument();
+    expect(within(page as HTMLElement).getByText('Tasks', { selector: '.rw-page-title' })).toBeInTheDocument();
     await user.click(within(page as HTMLElement).getByRole('button', { name: 'Back' }));
     expect(controller.state.mobilePage).toBe('chat');
   });

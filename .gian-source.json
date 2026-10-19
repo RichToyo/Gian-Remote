@@ -2,7 +2,7 @@
   "schema": 1,
   "product": "Gian Remote",
   "sourceRepository": "RichLogic/Gian-Dev",
-  "sourceCommit": "f11e63aec6025c210bdebb2b76a8f8f48419d0a2",
+  "sourceCommit": "f66db6a6c06cdb2bf29e65b0da70c09928ad7583",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -935,7 +935,7 @@
     {
       "source": "packages/remote-web/test/chat-composer.test.tsx",
       "path": "packages/remote-web/test/chat-composer.test.tsx",
-      "sha256": "521d465e1c4fd831e3a98f0b3d1d0cd9ebe88952146b1954199941f7a7bbebf9"
+      "sha256": "996eec7ddd4d563afb9e56611fda973d5bb5d08827aad541cb494af8f7fc6937"
     },
     {
       "source": "packages/remote-web/test/ciphertext-pacer.test.ts",
@@ -970,7 +970,7 @@
     {
       "source": "packages/remote-web/test/file-viewer.test.tsx",
       "path": "packages/remote-web/test/file-viewer.test.tsx",
-      "sha256": "ee0d3ed1b73345e4116ea47f9708b75b471904c252d9e38030cad068facbbf6a"
+      "sha256": "d75fadc8e424ae09daacaaa4b776bf7a4cad92cb5090d52d41f7e9c3679e68f9"
     },
     {
       "source": "packages/remote-web/test/frame-policy.test.ts",
@@ -1010,7 +1010,7 @@
     {
       "source": "packages/remote-web/test/new-chat.test.tsx",
       "path": "packages/remote-web/test/new-chat.test.tsx",
-      "sha256": "ca0194ed91bc1d93b92fa2bb1a29db27297e9abfd5f87a667790ced43c155df8"
+      "sha256": "68d1a1d89194865ea3671a1c81deaab39773ad9d7b77865bada277bb5dc9a6fd"
     },
     {
       "source": "packages/remote-web/test/pairing-link.test.ts",
@@ -1050,7 +1050,7 @@
     {
       "source": "packages/remote-web/test/rail.test.tsx",
       "path": "packages/remote-web/test/rail.test.tsx",
-      "sha256": "0f1c1a252cb8344ce48dee7a97d77e3785e553273b6c60f841ebdd53981167e3"
+      "sha256": "015ee9260bb6fa44b069f6ef729ef3f2d3c1def81cb877d84d57c9280e8ade88"
     },
     {
       "source": "packages/remote-web/test/render-app.tsx",
@@ -2157,7 +2157,7 @@
     {
       "path": "packages/remote-web/test/chat-composer.test.tsx",
       "mode": 420,
-      "sha256": "521d465e1c4fd831e3a98f0b3d1d0cd9ebe88952146b1954199941f7a7bbebf9"
+      "sha256": "996eec7ddd4d563afb9e56611fda973d5bb5d08827aad541cb494af8f7fc6937"
     },
     {
       "path": "packages/remote-web/test/ciphertext-pacer.test.ts",
@@ -2192,7 +2192,7 @@
     {
       "path": "packages/remote-web/test/file-viewer.test.tsx",
       "mode": 420,
-      "sha256": "ee0d3ed1b73345e4116ea47f9708b75b471904c252d9e38030cad068facbbf6a"
+      "sha256": "d75fadc8e424ae09daacaaa4b776bf7a4cad92cb5090d52d41f7e9c3679e68f9"
     },
     {
       "path": "packages/remote-web/test/frame-policy.test.ts",
@@ -2232,7 +2232,7 @@
     {
       "path": "packages/remote-web/test/new-chat.test.tsx",
       "mode": 420,
-      "sha256": "ca0194ed91bc1d93b92fa2bb1a29db27297e9abfd5f87a667790ced43c155df8"
+      "sha256": "68d1a1d89194865ea3671a1c81deaab39773ad9d7b77865bada277bb5dc9a6fd"
     },
     {
       "path": "packages/remote-web/test/pairing-link.test.ts",
@@ -2272,7 +2272,7 @@
     {
       "path": "packages/remote-web/test/rail.test.tsx",
       "mode": 420,
-      "sha256": "0f1c1a252cb8344ce48dee7a97d77e3785e553273b6c60f841ebdd53981167e3"
+      "sha256": "015ee9260bb6fa44b069f6ef729ef3f2d3c1def81cb877d84d57c9280e8ade88"
     },
     {
       "path": "packages/remote-web/test/render-app.tsx",

@@ -124,6 +124,6 @@ describe('new chat (B4)', () => {
     await user.click(screen.getByRole('button', { name: 'Create and start' }));
     controller.test.resolveAll();
     expect(controller.state.view.kind).toBe('new-chat');
-    expect(screen.getByText(/Create failed：workspace not available/)).toBeInTheDocument();
+    expect(screen.getByText('Create failed: workspace not available')).toBeInTheDocument();
   });
 });
