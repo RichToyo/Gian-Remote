@@ -173,7 +173,7 @@ describe('chat + composer (B5)', () => {
     const { controller } = renderApp({ scenario: {}, viewport: 'wide' });
     controller.actions.selectSession('s-2'); // visible Doing session, no active turn
     await user.type(screen.getByRole('textbox'), 'draft a checklist for me');
-    await user.click(screen.getByRole('button', { name: 'Send', exact: true }));
+    await user.click(screen.getByRole('button', { name: 'Send' }));
     controller.test.resolveAll();
     const session = controller.state.sessions.find((s) => s.id === 's-2')!;
     expect(session.status).toBe('running');

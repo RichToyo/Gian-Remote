@@ -2,7 +2,7 @@
   "schema": 1,
   "product": "Gian Remote",
   "sourceRepository": "RichLogic/Gian-Dev",
-  "sourceCommit": "f66db6a6c06cdb2bf29e65b0da70c09928ad7583",
+  "sourceCommit": "58ed57c2384228fd306ff8d02a923fa3a3766303",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -935,7 +935,7 @@
     {
       "source": "packages/remote-web/test/chat-composer.test.tsx",
       "path": "packages/remote-web/test/chat-composer.test.tsx",
-      "sha256": "996eec7ddd4d563afb9e56611fda973d5bb5d08827aad541cb494af8f7fc6937"
+      "sha256": "3066be7f559b32efc6e7ea704754dbc8c5686af438d6275a903ff553ba0ca5e2"
     },
     {
       "source": "packages/remote-web/test/ciphertext-pacer.test.ts",
@@ -2157,7 +2157,7 @@
     {
       "path": "packages/remote-web/test/chat-composer.test.tsx",
       "mode": 420,
-      "sha256": "996eec7ddd4d563afb9e56611fda973d5bb5d08827aad541cb494af8f7fc6937"
+      "sha256": "3066be7f559b32efc6e7ea704754dbc8c5686af438d6275a903ff553ba0ca5e2"
     },
     {
       "path": "packages/remote-web/test/ciphertext-pacer.test.ts",
