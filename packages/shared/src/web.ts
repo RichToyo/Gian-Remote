@@ -1,0 +1,835 @@
+import type {
+  Approval,
+  ApprovalCategory,
+  ApprovalMode,
+  ApprovalResolvedBy,
+  ApprovalStatus,
+  Executor,
+  QueueEntry,
+  Session,
+  SystemConfig,
+  Task,
+  TaskStatus,
+  Workspace,
+} from './model.js';
+import type { InputItem } from './proxy.js';
+import type { MessageContextItem } from './context.js';
+import type { SideChatPublicSnapshot, SessionOrigin } from './sidechat.js';
+import type { SidechatCloseResult } from './operations.js';
+import type {
+  AttentionControlMessage,
+  AttentionInboxRef,
+  AttentionLookupMessage,
+  AttentionMessage,
+} from './attention.js';
+
+/** Kept for `import type { AttentionMessage } from '@gian/shared/web'`. */
+export type { AttentionMessage } from './attention.js';
+
+export interface AuthMessage {
+  type: 'auth';
+  token: string;
+  /** Attention clients are read-only and receive no state/transcript/terminal
+   *  payloads. Omitted preserves the full legacy client contract. */
+  client?: 'attention';
+}
+
+export interface AuthOkMessage {
+  type: 'auth_ok';
+  user: string;
+}
+
+export interface RunnerInfo {
+  host: string;
+  latency: number;
+  started_ago: string;
+  agents: number;
+  disk: string;
+  codex_version: string;
+  cc_version: string;
+  ws_root: string;
+}
+
+export interface StateSyncMessage {
+  type: 'state_sync';
+  runner: RunnerInfo;
+  sessions: Session[];
+  /** Open/closing Side Chats grouped by parent_session_id. Never mixed into sessions. */
+  sidechats?: SideChatPublicSnapshot[];
+  workspaces: Workspace[];
+  tasks: Task[];
+  approvals: Approval[];
+  config: SystemConfig;
+  /** Pending Inbox snapshot for reconnect. Omitted by Hosts that predate it. */
+  inbox?: import('./inbox.js').InboxSyncSnapshot;
+}
+
+export interface EventEnvelope {
+  session_id: string;
+  turn: number;
+  call_id: string;
+  event: string;
+  ts: number;
+  data: Record<string, unknown>;
+  /** Provider that emitted `event`. Omitted on historical Gian rows. */
+  provider?: Executor;
+  /** UI-only projection. Omitted on historical pre-projection rows. */
+  display?: import('./events.js').ChatDisplay;
+}
+
+export interface EventMessage extends EventEnvelope {
+  type: 'event';
+}
+
+/** Preference kind for an attention signal. Plan review uses `approval`. */
+export type AttentionKind = AttentionMessage['kind'];
+
+export interface SessionUpdatedMessage {
+  type: 'session:updated';
+  session: Pick<Session, 'id'> & Partial<Session>;
+}
+
+export interface SessionHistoryRebuiltMessage {
+  type: 'session:history-rebuilt';
+  session_id: string;
+}
+
+export interface SessionCreatedMessage {
+  type: 'session:created';
+  session: Session;
+  /** Creation path that owns the broadcast. Optional for compatibility with
+   *  older Hosts; absent messages keep the ordinary interactive behavior. */
+  origin?: 'interactive-create' | 'native-adopt' | 'task-create' | 'session-fork' | 'tool-create';
+}
+
+export interface SessionDeletedMessage {
+  type: 'session:deleted';
+  session_id: string;
+}
+
+// ── Tasks (PRD-v3) ──────────────────────────────────────────────────────────
+export interface TaskCreatedMessage {
+  type: 'task:created';
+  task: Task;
+}
+
+export interface TaskUpdatedMessage {
+  type: 'task:updated';
+  task: Pick<Task, 'id'> & Partial<Task>;
+}
+
+export interface TaskDeletedMessage {
+  type: 'task:deleted';
+  task_id: string;
+}
+
+export interface TaskCreateMessage {
+  type: 'task:create';
+  name: string;
+  description?: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface TaskUpdateMessage {
+  type: 'task:update';
+  task_id: string;
+  name?: string;
+  description?: string;
+  status?: TaskStatus;
+  /** Pin / unpin the task. Independent of the content fields above; the host
+   *  stamps `pinned_at` (pin) or clears it (unpin) without bumping updated_at. */
+  pinned?: boolean;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface TaskDeleteMessage {
+  type: 'task:delete';
+  task_id: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface ApprovalCreatedMessage {
+  type: 'approval:created';
+  approval: {
+    id: string;
+    session_id: string;
+    category: ApprovalCategory;
+    description: string;
+    status: ApprovalStatus;
+    turn_number?: number;
+    native_options?: import('./model.js').NativeApprovalOption[];
+  };
+}
+
+export interface ApprovalUpdatedMessage {
+  type: 'approval:updated';
+  approval: {
+    id: string;
+    status: ApprovalStatus;
+    resolved_by: ApprovalResolvedBy;
+    resolved_at: string;
+    session_id?: string;
+    turn_number?: number;
+    decision?: ApprovalDecision;
+  };
+}
+
+export interface QueueUpdatedMessage {
+  type: 'queue:updated';
+  session_id: string;
+  queue_revision?: string;
+  /** Items carry the entry's attachments (localImage/localFile) so the queue
+   *  drawer can render thumbnails without a second fetch. */
+  queue: Array<Pick<QueueEntry, 'id' | 'text'> & {
+    items?: InputItem[];
+    context_items?: MessageContextItem[];
+    composer_document?: import('./context.js').ComposerDocument;
+  }>;
+}
+
+export interface RunnerUpdatedMessage {
+  type: 'runner:updated';
+  runner: Partial<RunnerInfo>;
+}
+
+/**
+ * Server-side dispatch error feedback. Sent when an inbound client message
+ * (most commonly `message:send`) throws on the host. Without this, failures
+ * inside `sendMessage` / `respondApproval` etc. were silently swallowed and
+ * the user only saw "no reply".
+ */
+export interface ErrorMessage {
+  type: 'error';
+  /** Optional — the session the failing operation referenced. */
+  session_id?: string;
+  /** Original client message type. Lets the UI settle operation-specific
+   *  loading state even when `code` is an executor-native error such as
+   *  `AUTH_REQUIRED`. */
+  request_type?: ClientToServerMessage['type'];
+  /** Correlation id of the failed request, when it carried one. */
+  request_id?: string;
+  /** Short machine-readable code, e.g. `MESSAGE_SEND_FAILED`. */
+  code: string;
+  /** Human-readable message; safe to surface in UI. */
+  message: string;
+}
+
+/**
+ * Per-request ack for a mutating client message (ui-operation-layer §4.4).
+ * Sent only to the originating socket, after the Host command handler has
+ * completed — and after any canonical broadcast caused by that command has
+ * been fanned out to this socket, so a success result never arrives ahead of
+ * the state it confirms. Canonical entity/event broadcasts remain the source
+ * of durable state; the result only correlates the request and ends the
+ * local pending/optimistic phase.
+ */
+export interface OperationResultMessage {
+  type: 'operation:result';
+  request_id: string;
+  request_type: ClientToServerMessage['type'];
+  ok: boolean;
+  error?: { code: string; message: string };
+  /** Domain result. Must never include resumeRef or Proxy routing secrets. */
+  result?: SidechatCloseResult | { sidechat_id: string } | { session_id: string; origin: SessionOrigin };
+}
+
+/**
+ * Coarse-grained "the workspace's git state may have changed" ping. Sent
+ * after fetch / branch create / merge / drop / worktree teardown — anything
+ * that could shift the branches table, ahead-behind counts, or worktree
+ * occupancy. Receivers (Workspace → Git tab) re-pull `loadBranches` /
+ * `loadRemoteBranches` / `loadWorkspaceTrees` rather than diff-applying.
+ *
+ * Coarse is intentional: granular events (branch:created, branch:deleted)
+ * would couple host event taxonomy to UI concerns that may change as the
+ * panel evolves. The payload is small, refreshes are cheap.
+ */
+export interface WorkspaceGitUpdatedMessage {
+  type: 'workspace:git-updated';
+  workspace_id: string;
+  /** Free-form reason — shown in dev console when debugging refresh storms. */
+  reason: 'fetch' | 'branch-created' | 'merge' | 'drop' | 'session-deleted' | 'worktree-detected' | 'worktree-created';
+}
+
+/**
+ * Workbench-terminal channel — independent of any Gian session. Each tab
+ * in the workbench terminal pane has a client-minted `term_id` that
+ * scopes its PTY.
+ */
+export interface TermOutputMessage {
+  type: 'term:output';
+  term_id: string;
+  /** Base64-encoded raw bytes. */
+  data: string;
+}
+
+export interface TermReplayMessage {
+  type: 'term:replay';
+  term_id: string;
+  chunks: string[];
+  alive: boolean;
+  /** Present when the PTY has exited, so a reconnect can restore the same
+   *  terminal status that a live `term:exited` frame would have shown. */
+  code: number | null;
+  signal: string | null;
+}
+
+export interface TermExitedMessage {
+  type: 'term:exited';
+  term_id: string;
+  code: number | null;
+  signal: string | null;
+}
+
+export type ServerToClientMessage =
+  | AuthOkMessage
+  | StateSyncMessage
+  | EventMessage
+  | AttentionMessage
+  | AttentionControlMessage
+  | SessionUpdatedMessage
+  | SessionHistoryRebuiltMessage
+  | SessionCreatedMessage
+  | SessionDeletedMessage
+  | TaskCreatedMessage
+  | TaskUpdatedMessage
+  | TaskDeletedMessage
+  | ApprovalCreatedMessage
+  | ApprovalUpdatedMessage
+  | QueueUpdatedMessage
+  | RunnerUpdatedMessage
+  | TermOutputMessage
+  | TermReplayMessage
+  | TermExitedMessage
+  | SessionNativeConfigMessage
+  | SessionSlashCommandsMessage
+  | WorkspaceGitUpdatedMessage
+  | OperationResultMessage
+  | SidechatCreatedMessage
+  | SidechatUpdatedMessage
+  | SidechatClosedMessage
+  | ScheduleChangedMessage
+  | ScheduleConfirmationMessage
+  | InboxChangedMessage
+  | InboxInvalidatedMessage
+  | RemoteEnvironmentsMessage
+  | ErrorMessage;
+
+/** One Inbox row changed. `item.generation` is the only generation a client may mark read. */
+export interface InboxChangedMessage {
+  type: 'inbox:changed';
+  inbox_revision: number;
+  item: import('./inbox.js').InboxItemPublic;
+}
+
+/** The pending set changed in bulk. Clients refetch; this frame carries no row bodies. */
+export interface InboxInvalidatedMessage {
+  type: 'inbox:invalidated';
+  inbox_revision: number;
+}
+
+/** Coarse invalidation for Schedule list/detail/run-log pages. Carries only
+ *  identities and the reason; clients re-fetch via the schedules REST API. */
+export interface ScheduleChangedMessage {
+  type: 'schedule:changed';
+  reason: 'created' | 'updated' | 'state_changed' | 'run_created' | 'run_updated' | 'archived';
+  schedule_id: string;
+  revision: number;
+  run_id?: string;
+}
+
+/** Full create-confirmation snapshot (contract L): the durable object Web
+ *  renders for the Host-enforced schedule create approval. */
+export interface ScheduleConfirmationMessage {
+  type: 'schedule:confirmation';
+  confirmation: import('./schedule.js').ScheduleConfirmation;
+}
+
+/** One Remote Controller environment's connectivity snapshot — the exact
+ *  shape of the hub's listEnvironments() / GET /api/remote/environments. */
+export interface RemoteEnvironmentStatus {
+  id: string;
+  name: string;
+  host_id: string;
+  server_origin: string;
+  pending: boolean;
+  connected: boolean;
+}
+
+/** Full Remote Controller environment snapshot, pushed when any
+ *  environment's connectivity flips (dedup'd Host-side). Clients apply it
+ *  directly; the lazy REST fetch + state_sync re-fetch cover hydration and
+ *  missed frames. */
+export interface RemoteEnvironmentsMessage {
+  type: 'remote:environments';
+  environments: RemoteEnvironmentStatus[];
+}
+
+export interface SessionCreateMessage {
+  type: 'session:create';
+  remote_environment_id?: string;
+  remote_session_id?: string;
+  name?: string;
+  workspace_id: string;
+  /** Owning user Agent (agents.json). Interactive creation always sends it;
+   *  the Host resolves the Proxy kind, CLI path, defaults, display name, and
+   *  color from it. Optional on the wire only so a fork of a pre-migration
+   *  (unbound) session can still fall back to `executor`. */
+  agent_id?: string;
+  /** Resolved by the Host from the Agent; retained on the wire only for
+   *  older clients and legacy unbound sessions. */
+  executor?: Executor;
+  model?: string;
+  /** Required for Claude/Codex. Kimi uses executor-native configuration. */
+  approval_mode?: ApprovalMode;
+  /** Optional thinking effort for the new session (new-session composer
+   *  chip); omitted/null falls back to the configured default. */
+  thinking_effort?: import('./model.js').ThinkingEffort | null;
+  /** Codex-only Fast service tier. Omitted/null keeps the standard tier. */
+  service_tier?: 'fast' | null;
+  /** Opaque Session-bound snapshot sent as `session.create.params.config`. */
+  session_config?: Record<string, import('./model.js').ConfigValue>;
+  /** Initial next-turn Turn-bound draft. */
+  turn_config?: Record<string, import('./model.js').ConfigValue>;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+/** Select the one transcript whose full event payloads this client needs. */
+export interface EventSubscribeMessage {
+  type: 'events:subscribe';
+  session_id: string | null;
+}
+
+export interface MessageSendMessage {
+  /** Local submission identity, retained across UI retries; distinct from operation correlation. */
+  send_id?: string;
+  translation_id?: string;
+  type: 'message:send';
+  session_id: string;
+  text: string;
+  attachments?: unknown[];
+  /**
+   * Optional structured input items. When present, replaces `text` for the
+   * proxy turn payload (text remains for transcript / queue display). Used
+   * for slash invocations that need typed dispatch — e.g. codex skills go
+   * out as `[{type:'skill', name, path}]` so codex resolves the skill
+   * markdown rather than receiving the slash as plain text.
+   */
+  items?: InputItem[];
+  /** Gian-owned context cards. The Host validates and compiles these into the
+   *  existing Provider-neutral text input while preserving this structure in
+   *  canonical history. */
+  context_items?: MessageContextItem[];
+  /** Ordered text/reference document used for inline Composer replay and
+   *  Host-side position-aware context compilation. */
+  composer_document?: import('./context.js').ComposerDocument;
+  /** Atomic next-turn draft for a Side Chat send. Ordinary Sessions reject it. */
+  turn_config?: Record<string, import('./model.js').ConfigValue>;
+  /**
+   * Claude-only single-turn bypass: when true, this turn runs with all
+   * approvals skipped regardless of session.approval_mode. Does NOT mutate
+   * the stored mode — the next turn returns to the persisted approval_mode.
+   * Receivers must reject this flag for every other executor.
+   */
+  oneShotBypass?: boolean;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+/**
+ * User's response to an approval request.
+ *
+ * Standard tool approvals use `allow_once | allow_session | decline`. The
+ * three `*_plan_*` variants are specific to `category === 'exit_plan_mode'`
+ * approvals (Claude's "I'm done planning, may I proceed?" prompt):
+ *
+ *   accept_with_auto — accept the plan + flip session.approval_mode to 'auto'
+ *                      (Claude runs tools autonomously on subsequent turns).
+ *   accept_with_ask  — accept the plan + flip session.approval_mode to 'ask'
+ *                      (each write tool prompts the user from now on).
+ *   keep_planning    — reject the plan and stay in plan mode for further
+ *                      discussion. Mapped to `behavior=deny` on the proxy.
+ *
+ * The plan-mode-exit ceremony in SessionManager.respondApproval consumes
+ * these to set the correct downstream behavior.
+ */
+export type ApprovalDecision =
+  | 'allow_once'
+  | 'allow_session'
+  | 'decline'
+  | 'accept_with_auto'
+  | 'accept_with_ask'
+  | 'keep_planning';
+
+export interface ApprovalResolveMessage {
+  type: 'approval:resolve';
+  session_id: string;
+  approval_id: string;
+  decision: ApprovalDecision;
+  /**
+   * Structured answers for AskUserQuestion-flavored approvals
+   * (category='question'). Keyed by the question text; the value is the
+   * selected option label (single-select) or labels (multi-select).
+   * Forwarded by host into cc-proxy's `approval.respond.answers` which
+   * piggybacks on the Claude SDK `updatedInput.answers` channel.
+   */
+  answers?: Record<string, string | boolean | string[]>;
+  /** Exact executor option for ACP-native approvals. */
+  native_option_id?: string;
+  /**
+   * Inbox occurrence the user acted on: `{ id, generation }`, the same shape
+   * as `AttentionInboxRef`. Omit it and resolve stays the current pending
+   * approval for web, IM, tool, and auto callers. When it is present, the
+   * Host checks that exact row, session, interaction, and Host turn before
+   * any resolve or provider respond. A mismatch is `PRECONDITION_FAILED`.
+   */
+  expected_inbox?: AttentionInboxRef;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionStopMessage {
+  type: 'session:stop';
+  session_id: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+/**
+ * Last-resort recovery: ask host to forcibly tear down whatever proxy /
+ * spawned process backs this session and reset the row to `'done'`. Used
+ * when `session:stop` either fails or didn't unstick the spinner.
+ */
+export interface SessionRecoverMessage {
+  type: 'session:recover';
+  session_id: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionRenameMessage {
+  type: 'session:rename';
+  session_id: string;
+  name: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionArchiveMessage {
+  type: 'session:archive';
+  session_id: string;
+  archived: boolean;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+/** Move an active standalone coding session under an open Task, move a
+ *  Subtask between open Tasks, or (task_id null) release a Subtask back to
+ *  standalone. */
+export interface SessionAssignTaskMessage {
+  type: 'session:assign_task';
+  session_id: string;
+  task_id: string | null;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionPinMessage {
+  type: 'session:pin';
+  session_id: string;
+  pinned: boolean;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionDeleteMessage {
+  type: 'session:delete';
+  session_id: string;
+  /** Recorded, user-confirmed Side Chat close actions. Required when any
+   *  open/closing Side Chat still belongs to this Session. */
+  confirmed_sidechat_ids?: string[];
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SidechatCreateMessage {
+  type: 'sidechat:create';
+  parent_session_id: string;
+  sidechat_id?: string;
+  request_id?: string;
+}
+
+export interface SidechatResumeMessage {
+  type: 'sidechat:resume';
+  sidechat_id: string;
+  parent_session_id: string;
+  request_id?: string;
+}
+
+export interface SidechatCloseMessage {
+  type: 'sidechat:close';
+  sidechat_id: string;
+  request_id?: string;
+}
+
+export interface SidechatSetTurnConfigMessage {
+  type: 'sidechat:set_turn_config';
+  sidechat_id: string;
+  option_id: string;
+  value: import('./model.js').ConfigValue;
+  request_id?: string;
+}
+
+export interface SessionForkMessage {
+  type: 'session:fork';
+  source_session_id: string;
+  session_id?: string;
+  anchor: { type: 'head' } | { type: 'turn'; turn_id: string; source_turn_id: string };
+  request_id?: string;
+}
+
+export interface SidechatCreatedMessage {
+  type: 'sidechat:created';
+  sidechat: SideChatPublicSnapshot;
+}
+
+export interface SidechatUpdatedMessage {
+  type: 'sidechat:updated';
+  sidechat: SideChatPublicSnapshot;
+}
+
+export interface SidechatClosedMessage {
+  type: 'sidechat:closed';
+  sidechat_id: string;
+  parent_session_id: string;
+  provider_data_deleted: boolean;
+}
+
+/**
+ * Toggle a session's unread marker. `unread: false` is the "mark read" path
+ * fired when the user opens/views the session; `unread: true` is the manual
+ * "Mark as unread" menu action. Does not bump `updated_at` host-side, so the
+ * sidebar order is unaffected.
+ */
+export interface SessionSetUnreadMessage {
+  type: 'session:set_unread';
+  session_id: string;
+  unread: boolean;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionSetModeMessage {
+  type: 'session:set_mode';
+  session_id: string;
+  approval_mode: ApprovalMode;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionSetModelMessage {
+  type: 'session:set_model';
+  session_id: string;
+  model: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionSetEffortMessage {
+  type: 'session:set_effort';
+  session_id: string;
+  /** Null clears (use model default). See `ThinkingEffort`. */
+  effort: import('./model.js').ThinkingEffort | null;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionSetServiceTierMessage {
+  type: 'session:set_service_tier';
+  session_id: string;
+  /** 'fast' turns the codex Fast tier on; null turns it off. codex-only. */
+  service_tier: 'fast' | null;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionSetNativeConfigMessage {
+  type: 'session:set_native_config';
+  session_id: string;
+  config_id: string;
+  value: import('./model.js').NativeConfigValue;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionSetTurnConfigMessage {
+  type: 'session:set_turn_config';
+  session_id: string;
+  option_id: string;
+  value: import('./model.js').ConfigValue;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface SessionNativeConfigMessage {
+  type: 'session:native-config';
+  session_id: string;
+  state: import('./model.js').ExecutorConfigState;
+  options: import('./model.js').NativeConfigOption[];
+}
+
+export interface SessionSlashCommandsMessage {
+  type: 'session:slash-commands';
+  session_id: string;
+  commands: import('./proxy.js').SlashCommand[];
+}
+
+export interface QueueAddMessage {
+  type: 'queue:add';
+  session_id: string;
+  text: string;
+  /** Structured input items (image attachments) carried with the message —
+   *  same shape as MessageSendMessage.items. */
+  items?: InputItem[];
+  context_items?: MessageContextItem[];
+  composer_document?: import('./context.js').ComposerDocument;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface QueueRemoveMessage {
+  type: 'queue:remove';
+  session_id: string;
+  queue_id: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface QueueUpdateMessage {
+  type: 'queue:update';
+  session_id: string;
+  queue_id: string;
+  /** New text for the entry. Position in the queue is kept; attachments
+   *  (items) are not editable — remove and re-queue to change those. */
+  text: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface QueueSendNowMessage {
+  type: 'queue:send_now';
+  session_id: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface QueueClearMessage {
+  type: 'queue:clear';
+  session_id: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+/** Codex-only mid-turn injection: append the message to the session's ACTIVE
+ *  turn via `turn/steer` instead of queueing it for the next one. Other
+ *  executors reject — they have no native steer primitive. */
+export interface MessageSteerMessage {
+  type: 'message:steer';
+  session_id: string;
+  text: string;
+  items?: InputItem[];
+  context_items?: MessageContextItem[];
+  composer_document?: import('./context.js').ComposerDocument;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+/**
+ * Workbench terminal — client → server messages, keyed by `term_id` and
+ * routed to the host's WorkbenchTerminalManager.
+ */
+export interface TermSpawnMessage {
+  type: 'term:spawn';
+  term_id: string;
+  /** Host-authorized command profile. Clients select an Agent identity and
+   * never provide its executable, argv, HOME environment, or installer. */
+  target?: { kind: 'agent_cli'; agent_id: string; action?: 'login' };
+  /** Optional cwd; falls back to $HOME server-side. */
+  cwd?: string;
+  cols: number;
+  rows: number;
+  /** Optional override of the shell binary (default = $SHELL). */
+  shell?: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export interface TermInputMessage {
+  type: 'term:input';
+  term_id: string;
+  data: string;
+}
+
+export interface TermResizeMessage {
+  type: 'term:resize';
+  term_id: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TermReplayRequestMessage {
+  type: 'term:replay-request';
+  term_id: string;
+}
+
+export interface TermCloseMessage {
+  type: 'term:close';
+  term_id: string;
+  /** Correlation id — see `OperationResultMessage`. */
+  request_id?: string;
+}
+
+export type ClientToServerMessage =
+  | AuthMessage
+  | AttentionLookupMessage
+  | EventSubscribeMessage
+  | SessionCreateMessage
+  | MessageSendMessage
+  | MessageSteerMessage
+  | ApprovalResolveMessage
+  | SessionStopMessage
+  | SessionRecoverMessage
+  | SessionRenameMessage
+  | SessionArchiveMessage
+  | SessionAssignTaskMessage
+  | SessionPinMessage
+  | SessionDeleteMessage
+  | TaskCreateMessage
+  | TaskUpdateMessage
+  | TaskDeleteMessage
+  | SessionSetUnreadMessage
+  | SessionSetModeMessage
+  | SessionSetModelMessage
+  | SessionSetEffortMessage
+  | SessionSetServiceTierMessage
+  | SessionSetNativeConfigMessage
+  | SessionSetTurnConfigMessage
+  | SidechatCreateMessage
+  | SidechatResumeMessage
+  | SidechatCloseMessage
+  | SidechatSetTurnConfigMessage
+  | SessionForkMessage
+  | QueueAddMessage
+  | QueueRemoveMessage
+  | QueueUpdateMessage
+  | QueueSendNowMessage
+  | QueueClearMessage
+  | TermSpawnMessage
+  | TermInputMessage
+  | TermResizeMessage
+  | TermReplayRequestMessage
+  | TermCloseMessage;

@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "baseline": "2465b3714b0bdb3db7db9e7e5cd32513fefe8fb4",
+  "reviewedOn": "2026-10-13",
+  "note": "Each entry is one path and SHA-256. A matching digest at another path is not accepted. SVG is scanned as text and is not listed. An extension is not an allowlist.",
+  "entries": [
+    {
+      "path": "packages/proxies/antigravity-proxy/assets/logo.png",
+      "sha256": "c8ae82dfb8550a772969bfef1a9842124ae22383f8c191572b6d784bc23a83c0",
+      "reviewedOn": "2026-10-19"
+    },
+    {
+      "path": "catalog/official-source/plugins/io.gian.antigravity/assets/logo-dark.png",
+      "sha256": "c8ae82dfb8550a772969bfef1a9842124ae22383f8c191572b6d784bc23a83c0",
+      "reviewedOn": "2026-10-19"
+    },
+    {
+      "path": "catalog/official-source/plugins/io.gian.antigravity/assets/logo-light.png",
+      "sha256": "c8ae82dfb8550a772969bfef1a9842124ae22383f8c191572b6d784bc23a83c0",
+      "reviewedOn": "2026-10-19"
+    },
+    {
+      "path": ".github/assets/readme/gian-changes.webp",
+      "sha256": "d22f505b2ca2dc1a97bfc43537e83f50dd1f9a14099b16f5e16f23daede5521e"
+    },
+    {
+      "path": ".github/assets/readme/gian-overview.webp",
+      "sha256": "68b579b86e7ad10a9a2236a7d0fb6891b8b7ff2bd48bcfdd3cb3877fa0c20a33"
+    },
+    {
+      "path": ".github/assets/readme/gian-tasks.webp",
+      "sha256": "7dc3fabe5e6dfae31a94a38b0059a71f6b0052778135ae4f6c91e76360b4e96e"
+    },
+    {
+      "path": "catalog/official-source/plugins/ai.deepseek.harness/assets/logo-dark.png",
+      "sha256": "d1e6058d19b04817a623dc6e3a99405c70defaf412e9296edf7dbe2032ff7cbe"
+    },
+    {
+      "path": "catalog/official-source/plugins/ai.deepseek.harness/assets/logo-light.png",
+      "sha256": "d1e6058d19b04817a623dc6e3a99405c70defaf412e9296edf7dbe2032ff7cbe"
+    },
+    {
+      "path": "catalog/official-source/plugins/claude/assets/logo-dark.png",
+      "sha256": "a65c6427201ce17bea5c7aad8ec3b8ca9bd94102c660542081e8cf939da886de"
+    },
+    {
+      "path": "catalog/official-source/plugins/claude/assets/logo-light.png",
+      "sha256": "a65c6427201ce17bea5c7aad8ec3b8ca9bd94102c660542081e8cf939da886de"
+    },
+    {
+      "path": "catalog/official-source/plugins/codex/assets/logo-dark.png",
+      "sha256": "91b9fb986d2623f746433928a5395e258bfec013b695a534132f9785df82d24b"
+    },
+    {
+      "path": "catalog/official-source/plugins/codex/assets/logo-light.png",
+      "sha256": "434e4bf19f8dcb0358f4ec8ccc3fcd9f25b1967dfc7cd3eb885f6e51722dc5a0"
+    },
+    {
+      "path": "catalog/official-source/plugins/com.zhipu.zcode/assets/logo-dark.png",
+      "sha256": "5725ded891aa51f9f44d25b8fdab9cdbe4a04f4358821764bbb034600c2477a3"
+    },
+    {
+      "path": "catalog/official-source/plugins/com.zhipu.zcode/assets/logo-light.png",
+      "sha256": "5725ded891aa51f9f44d25b8fdab9cdbe4a04f4358821764bbb034600c2477a3"
+    },
+    {
+      "path": "catalog/official-source/plugins/grok/assets/logo-dark.png",
+      "sha256": "2c645c9b9ab3a2d0669f8ac5cb41edd6e8917093d0f611ebfe99e50b4f2d233e"
+    },
+    {
+      "path": "catalog/official-source/plugins/grok/assets/logo-light.png",
+      "sha256": "2c645c9b9ab3a2d0669f8ac5cb41edd6e8917093d0f611ebfe99e50b4f2d233e"
+    },
+    {
+      "path": "catalog/official-source/plugins/kimi/assets/logo-dark.png",
+      "sha256": "cf05e926a83775536db9aa85602ae8f4848bde16913ce9701aba419deeeff338"
+    },
+    {
+      "path": "catalog/official-source/plugins/kimi/assets/logo-light.png",
+      "sha256": "11d9667286a0d9b4702caa7c929ce66f3e191fd1d4cf62309bce20c013925270"
+    },
+    {
+      "path": "packages/desktop/resources/icon.icns",
+      "sha256": "2be32f6c3a0698ad47579a7e3c576b31506d58b3a58ff4e9e88d1fad92571d2b"
+    },
+    {
+      "path": "packages/proxies/cc-proxy/assets/logo-dark.png",
+      "sha256": "a65c6427201ce17bea5c7aad8ec3b8ca9bd94102c660542081e8cf939da886de"
+    },
+    {
+      "path": "packages/proxies/cc-proxy/assets/logo-light.png",
+      "sha256": "a65c6427201ce17bea5c7aad8ec3b8ca9bd94102c660542081e8cf939da886de"
+    },
+    {
+      "path": "packages/proxies/codex-proxy/assets/logo-dark.png",
+      "sha256": "91b9fb986d2623f746433928a5395e258bfec013b695a534132f9785df82d24b"
+    },
+    {
+      "path": "packages/proxies/codex-proxy/assets/logo-light.png",
+      "sha256": "434e4bf19f8dcb0358f4ec8ccc3fcd9f25b1967dfc7cd3eb885f6e51722dc5a0"
+    },
+    {
+      "path": "packages/proxies/dsh-proxy/assets/logo-dark.png",
+      "sha256": "d1e6058d19b04817a623dc6e3a99405c70defaf412e9296edf7dbe2032ff7cbe"
+    },
+    {
+      "path": "packages/proxies/dsh-proxy/assets/logo-light.png",
+      "sha256": "d1e6058d19b04817a623dc6e3a99405c70defaf412e9296edf7dbe2032ff7cbe"
+    },
+    {
+      "path": "packages/proxies/grok-proxy/assets/logo-dark.png",
+      "sha256": "2c645c9b9ab3a2d0669f8ac5cb41edd6e8917093d0f611ebfe99e50b4f2d233e"
+    },
+    {
+      "path": "packages/proxies/grok-proxy/assets/logo-light.png",
+      "sha256": "2c645c9b9ab3a2d0669f8ac5cb41edd6e8917093d0f611ebfe99e50b4f2d233e"
+    },
+    {
+      "path": "packages/proxies/kimi-proxy/assets/logo-dark.png",
+      "sha256": "cf05e926a83775536db9aa85602ae8f4848bde16913ce9701aba419deeeff338"
+    },
+    {
+      "path": "packages/proxies/kimi-proxy/assets/logo-light.png",
+      "sha256": "11d9667286a0d9b4702caa7c929ce66f3e191fd1d4cf62309bce20c013925270"
+    },
+    {
+      "path": "packages/proxies/zcode-proxy/assets/logo-dark.png",
+      "sha256": "5725ded891aa51f9f44d25b8fdab9cdbe4a04f4358821764bbb034600c2477a3"
+    },
+    {
+      "path": "packages/proxies/zcode-proxy/assets/logo-light.png",
+      "sha256": "5725ded891aa51f9f44d25b8fdab9cdbe4a04f4358821764bbb034600c2477a3"
+    }
+  ]
+}
