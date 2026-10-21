@@ -3,7 +3,10 @@ export function occupiesCanonicalSequence(
   eventKind?: string,
 ): boolean {
   if (type === 'state.patch') return true;
-  if (type === 'event') return eventKind !== 'transcript.item';
+  // transcript.item and translation.updated ride the live connection only:
+  // they are recovered by session.subscribe/session.page reads after a
+  // reconnect, never by the canonical replay sequence.
+  if (type === 'event') return eventKind !== 'transcript.item' && eventKind !== 'translation.updated';
   return false;
 }
 

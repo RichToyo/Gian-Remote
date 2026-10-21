@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@gian/chat-ui": "workspace:*",
-    "@gian/remote-protocol": "https://github.com/RichLogic/Gian/releases/download/remote-protocol-v1.3.0/gian-remote-protocol-1.3.0.tgz",
+    "@gian/remote-protocol": "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.4.0/gian-remote-protocol-1.4.0.tgz",
     "@gian/shared": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -50,6 +50,7 @@ export * from './trace.js';
 export * from './sidechat.js';
 export * from './operations.js';
 export * from './tool.js';
+export * from './mcp-input.js';
 export * from './context.js';
 export * from './schedule.js';
 export * from './search.js';

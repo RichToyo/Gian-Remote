@@ -284,6 +284,26 @@ export interface TermExitedMessage {
   signal: string | null;
 }
 
+/**
+ * Host-canonical conversation-translation change. Emitted after the Host
+ * persists, so every connected local view (including pages whose automatic
+ * switch is off and no longer poll) can re-read or merge authoritative
+ * state. Carries no secrets: local clients already read full records via
+ * the session translation REST API.
+ */
+export interface TranslationUpdatedMessage {
+  type: 'translation:updated';
+  session_id: string;
+  /** The automatic switch was persisted to a new value. */
+  enabled?: boolean;
+  /** Automatic reading-translation progress/failure for one source. */
+  automatic?: { source_id: string; pending: boolean; error?: string };
+  /** A record was just persisted (send or read purpose). */
+  result?: import('./translation.js').TranslationRecord;
+  /** The Host's saved translation preferences changed (Settings save). */
+  preferences_changed?: boolean;
+}
+
 export type ServerToClientMessage =
   | AuthOkMessage
   | StateSyncMessage
@@ -316,6 +336,7 @@ export type ServerToClientMessage =
   | InboxChangedMessage
   | InboxInvalidatedMessage
   | RemoteEnvironmentsMessage
+  | TranslationUpdatedMessage
   | ErrorMessage;
 
 /** One Inbox row changed. `item.generation` is the only generation a client may mark read. */
@@ -697,6 +718,9 @@ export interface QueueAddMessage {
   items?: InputItem[];
   context_items?: MessageContextItem[];
   composer_document?: import('./context.js').ComposerDocument;
+  /** Explicit send intent for the queued entry: a translation receipt id or
+   *  'original' (deliberate untranslated bypass). Persisted through drain. */
+  translation_id?: string;
   /** Correlation id — see `OperationResultMessage`. */
   request_id?: string;
 }

@@ -10,12 +10,19 @@ import {
   ChatPanelOpenContext,
   LinkBehaviorContext,
   MessageAttachmentOpenContext,
+  SEND_TRANSLATE_TIMEOUT_MS,
   Transcript,
+  TranslationResultBlock,
+  TranslationSendRow,
+  TranslationTextRetryContext,
+  TranslationToggleButton,
+  languageName,
   renderChatItem,
 } from '@gian/chat-ui';
 import type { TranscriptItem } from '@gian/chat-ui';
 import type { RemoteSession } from '@gian/remote-protocol';
 import { mutationsEnabled } from '../controller/types.js';
+import { isReadExpanded, readingValue, translationUiFor } from '../controller/translation.js';
 import { useT } from '../i18n/index.js';
 import { createRemoteLinkBehavior } from '../links/link-behavior.js';
 import { ConnectionBanner, UnknownOutcomeBanner } from './banners.js';
@@ -34,6 +41,8 @@ export function ChatPage({ session }: { session: RemoteSession }) {
   const transcript = state.transcripts[session.id];
   const online = mutationsEnabled(state.connection);
   const stale = !online;
+  const translationUi = translationUiFor(state.translations, session.id);
+  const translation = translationUi.supported ? translationUi : null;
 
   const items = useMemo<TranscriptItem[]>(() => {
     const base = transcript?.items ?? [];
@@ -74,6 +83,35 @@ export function ChatPage({ session }: { session: RemoteSession }) {
     [actions, session.id],
   );
 
+  // The pending original bubble carries the gate's inline status row right
+  // beneath it (same layout contract as local Gian's send echo).
+  const sendGate = translation?.send ?? null;
+  const echoTs = sendGate
+    ? transcript?.items.find(item => item.id === `translation-echo:${sendGate.submissionId}`)?.ts
+    : undefined;
+  const translationExtras = sendGate && echoTs !== undefined
+    ? [{
+      id: `translation-send-row:${sendGate.requestId}`,
+      afterTs: echoTs,
+      node: (
+        <TranslationSendRow
+          sending={sendGate.phase === 'translating'
+            ? { phase: 'translating' as const }
+            : sendGate.phase === 'dispatching'
+              ? { phase: 'dispatching' as const }
+              : sendGate.phase === 'unknown'
+                ? { phase: 'unknown' as const }
+                : { phase: 'failed' as const, error: sendGate.error, timedOut: sendGate.timedOut }}
+          timeoutSeconds={SEND_TRANSLATE_TIMEOUT_MS / 1000}
+          onRetry={() => actions.retryTranslationSend(session.id)}
+          onSendOriginal={() => actions.sendOriginalTranslation(session.id)}
+          onReclaim={() => actions.reclaimTranslationSend(session.id)}
+          onRefreshState={() => actions.refreshState()}
+        />
+      ),
+    }]
+    : undefined;
+
   return (
     <div className={`rw-chat-root${stale ? ' rw-stale' : ''}`}>
       <ConnectionBanner connection={state.connection} />
@@ -95,6 +133,9 @@ export function ChatPage({ session }: { session: RemoteSession }) {
               })}
             >
               <ChatPanelOpenContext.Provider value={null}>
+                <TranslationTextRetryContext.Provider
+                  value={(recordId) => actions.retryTranslationText(session.id, recordId)}
+                >
                 <Transcript
                   items={items}
                   pending={streaming}
@@ -104,10 +145,59 @@ export function ChatPage({ session }: { session: RemoteSession }) {
                   historyError={transcript?.historyError}
                   onLoadOlder={() => actions.loadOlderTranscript(session.id)}
                   onRetryHistory={() => actions.retryTranscript(session.id)}
+                  {...(translationExtras ? { extras: translationExtras } : {})}
                   onApprove={interactionResponder((interactionId, actionId, values) => {
                     if (!online || responding.has(interactionId)) return;
                     actions.respondToInteraction(interactionId, actionId, values);
                   })}
+                  renderAssistantFooterActions={translation
+                    ? (item) => {
+                      const key = `turn:${item.turn}`;
+                      const expanded = isReadExpanded(translationUi, key);
+                      const title = t('translation.to', { language: languageName(translationUi.readingLanguage) });
+                      return (
+                        <TranslationToggleButton
+                          expanded={expanded}
+                          ready
+                          title={title}
+                          onClick={() => actions.toggleReadTranslation(session.id, key, item.text)}
+                        />
+                      );
+                    }
+                    : undefined}
+                  renderAssistantTranslation={translation
+                    ? (item) => {
+                      const key = `turn:${item.turn}`;
+                      const value = readingValue(translationUi, key);
+                      return (
+                        <TranslationResultBlock
+                          value={{
+                            pending: value.pending,
+                            ...(value.error
+                              ? {
+                                error: value.error === 'translation.loadFailed'
+                                  ? t('translation.loadFailed')
+                                  : value.error,
+                              }
+                              : {}),
+                            ...(value.record
+                              ? { text: value.record.text, targetLanguage: value.record.targetLanguage }
+                              : {}),
+                          }}
+                          expanded={isReadExpanded(translationUi, key)}
+                          onRetry={() => {
+                            // A descriptor paging failure retries the fetch in
+                            // place; a translation failure re-requests.
+                            if (value.error === 'translation.loadFailed' && value.recordId) {
+                              actions.retryTranslationText(session.id, value.recordId);
+                              return;
+                            }
+                            actions.retryReadTranslation(session.id, key, item.text);
+                          }}
+                        />
+                      );
+                    }
+                    : undefined}
                   renderItem={(item, ctx) =>
                     renderChatItem(item, {
                       ...ctx,
@@ -117,6 +207,7 @@ export function ChatPage({ session }: { session: RemoteSession }) {
                     })
                   }
                 />
+                </TranslationTextRetryContext.Provider>
               </ChatPanelOpenContext.Provider>
             </MessageAttachmentOpenContext.Provider>
           </LinkBehaviorContext.Provider>

@@ -1475,3 +1475,95 @@ textarea.approval-text-field { min-height: 48px; resize: vertical; }
 }
 .msg-copy:hover { background: var(--surface-2); }
 .msg-copy.copied { color: var(--ok); }
+
+/* ── Conversation translation (shared by Gian Web and Remote Web) ─────── */
+
+/* Auto-translate is a Fast-style icon chip (lucide `book-type`): accent wash
+   + ring when on, quiet icon when off (Owner 2026-09-24 — no switch chrome
+   here; icon-only since 2026-09-29, label lives on title/aria). The session
+   underbar, the new-session form, and Remote Web share the same
+   presentational chip (AutoTranslationChip). */
+.translation-auto {
+  margin-left: auto; flex: 0 0 auto;
+  display: inline-flex; align-items: center;
+  height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--hairline); border-radius: var(--r-2);
+  background: transparent;
+  font: 500 var(--fz-11)/1.2 var(--font-mono);
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.translation-auto svg { display: block; }
+.translation-auto:hover { background: var(--row-hover, var(--surface-2)); color: var(--text); }
+.translation-auto:disabled { opacity: 0.45; cursor: default; }
+.translation-auto.on,
+.translation-auto.on:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+  border-color: var(--accent-ring);
+}
+/* A zero-width portal span can sit between the chip and the nav buttons,
+   so this must be a general-sibling override, not adjacent (+). */
+.translation-auto ~ .transcript-navbtns { margin-left: 0; flex-shrink: 0; }
+/* The reading translation is 90% of the transcript body size — expressed
+   off --fz-13 so the chat font-size setting (--chat-zone-scale) reaches it;
+   a bare em never saw the zone scale and pinned the bubble at 12.6px
+   (2026-10-18 fix). */
+.translation-block { margin-top: 12px; min-width: 0; font-size: calc(var(--fz-13) * 0.9); color: var(--text); }
+.translation-heading { display: flex; align-items: center; gap: 6px; color: var(--muted, var(--text-2)); padding: 4px 0; }
+.translation-label { color: var(--muted, var(--text-2)); margin-bottom: 6px; font-size: var(--fz-11); }
+.translation-bubble { border-left: 2px solid var(--hairline); padding: 8px 12px; overflow-wrap: anywhere; min-width: 0; }
+.translation-bubble pre { overflow: auto; max-width: 100%; }
+.translation-bubble > :first-child { margin-top: 0; }
+.translation-bubble > :last-child { margin-bottom: 0; }
+/* The sent-translation block hangs right-aligned under the user bubble and
+   matches the bubble's width cap (`.msg.user .msg-text`). */
+.translation-sent { max-width: 88%; }
+.translation-sent .translation-bubble { background: var(--surface); border: 1px solid var(--hairline); border-radius: 6px; }
+.translation-action { width: 28px; height: 28px; padding: 0; flex: 0 0 28px; border: 0; background: transparent; color: var(--muted, var(--text-2)); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.translation-action svg { display: block; }
+.translation-action:hover { color: var(--text); background: var(--surface); }
+.translation-action:disabled { opacity: .5; cursor: default; }
+/* Globe toggle's expanded state gets the accent highlight (it owns the
+   translation block's expand/collapse now). */
+.translation-action.on,
+.translation-action.on:hover { color: var(--accent-text); background: var(--accent-soft); }
+/* Inline progress row under a pending send echo while its translation runs:
+   quiet, right-aligned with the bubble column. */
+.translation-send-row {
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap;
+  gap: 8px; max-width: 88%; margin-top: 6px;
+  font-size: var(--fz-11); color: var(--muted, var(--text-2));
+}
+/* "Translating" + three permanent dots running a staggered wave (delays
+   0 / .15s / .3s). Shared by the send row and the assistant toggle. */
+.translation-pending { display: inline-flex; align-items: center; gap: 6px; }
+.translation-dots { display: inline-flex; align-items: center; gap: 3px; }
+.translation-dots > span {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: currentColor;
+  animation: translation-dot-wave 1.2s ease-in-out infinite;
+}
+.translation-dots > span:nth-child(2) { animation-delay: 0.15s; }
+.translation-dots > span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes translation-dot-wave {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .translation-dots > span { animation: none; opacity: 0.6; }
+}
+/* Small text-link affordances inside translation rows (Send original /
+   Retry) — quieter than `.btn`. */
+.translation-link {
+  border: 0; background: none; padding: 0;
+  color: var(--accent-text); font: inherit; cursor: pointer;
+}
+.translation-link:hover { text-decoration: underline; }
+.translation-error { color: var(--danger, #b94141); overflow-wrap: anywhere; font-size: var(--fz-11); }
+.translation-error button { margin-left: 8px; }
+@media (max-width: 600px) {
+  .translation-action { min-width: 36px; min-height: 36px; }
+}

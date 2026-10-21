@@ -1,6 +1,6 @@
 import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import { useChatUiT } from './i18n.js';
-import { ChatPanelOpenContext } from './contexts.js';
+import { ChatPanelOpenContext, ScrollerSelectorContext } from './contexts.js';
 import type { ApprovalItem, MsgItem, StatusItem, TranscriptItem, OnApprove } from './types.js';
 import { formatElapsed, formatTime } from './utils.js';
 import {
@@ -471,6 +471,7 @@ export function Transcript({
   messageFocus = null,
   onConsumeMessageFocus,
   findActive = false,
+  scrollerSelector = '.main-scroll',
 }: {
   items: TranscriptItem[];
   pending: boolean;
@@ -525,6 +526,10 @@ export function Transcript({
   /** True while conversation find owns the scroll position: a new user
    *  message or streaming delta must not re-pin the view to the bottom. */
   findActive?: boolean;
+  /** Selector of the scrolling ancestor (a host app may wrap the transcript
+   *  in its own scroll container, e.g. the Side Chat dock's
+   *  `.sidechat-scroll`). Falls back to the transcript element itself. */
+  scrollerSelector?: string;
 }) {
   const t = useChatUiT();
   const ref = useRef<HTMLDivElement>(null);
@@ -547,7 +552,7 @@ export function Transcript({
   function rememberOlderAnchor() {
     const el = ref.current;
     if (!el) return;
-    const scroller = (el.closest('.main-scroll') as HTMLElement | null) ?? el;
+    const scroller = (el.closest(scrollerSelector) as HTMLElement | null) ?? el;
     olderAnchorRef.current = {
       scroller,
       height: scroller.scrollHeight,
@@ -574,7 +579,7 @@ export function Transcript({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const scroller = (el.closest('.main-scroll') as HTMLElement | null) ?? el;
+    const scroller = (el.closest(scrollerSelector) as HTMLElement | null) ?? el;
     const onScroll = () => {
       const movingUp = scroller.scrollTop < lastScrollTopRef.current;
       lastScrollTopRef.current = scroller.scrollTop;
@@ -589,10 +594,11 @@ export function Transcript({
     atBottomRef.current =
       scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= AT_BOTTOM_PX;
     return () => scroller.removeEventListener('scroll', onScroll);
-  }, [hasOlder, loadingOlder, onLoadOlder]);
+  }, [hasOlder, loadingOlder, onLoadOlder, scrollerSelector]);
 
-  // The actual scroll container may be an ancestor (`.main-scroll`), not our
-  // local `.transcript` element, so we walk up via closest(). Jam scrollTop
+  // The actual scroll container may be an ancestor (`.main-scroll` by
+  // default, `scrollerSelector` otherwise), not our local `.transcript`
+  // element, so we walk up via closest(). Jam scrollTop
   // twice — synchronously and on next rAF — to absorb async layout shifts from
   // markdown/highlight that grow the transcript after the initial measurement.
   const firstId = items[0] ? transcriptItemIdentity(items[0]) : undefined;
@@ -629,13 +635,13 @@ export function Transcript({
     }
     idsRef.current = { firstId, lastUserId };
     if (!atBottomRef.current) return;
-    const scroller = (el.closest('.main-scroll') as HTMLElement | null) ?? el;
+    const scroller = (el.closest(scrollerSelector) as HTMLElement | null) ?? el;
     scroller.scrollTop = scroller.scrollHeight;
     const id = window.requestAnimationFrame(() => {
       scroller.scrollTop = scroller.scrollHeight;
     });
     return () => window.cancelAnimationFrame(id);
-  }, [items.length, tailLen, pending, extras?.length, firstId, lastUserId, findActive]);
+  }, [items.length, tailLen, pending, extras?.length, firstId, lastUserId, findActive, scrollerSelector]);
 
   useEffect(() => {
     if (!scheduleFocus) return;
@@ -700,6 +706,7 @@ export function Transcript({
 
   return (
     <div className="transcript" ref={ref}>
+      <ScrollerSelectorContext.Provider value={scrollerSelector}>
         {historyError && (
           <div className="transcript-history-error" role="alert">
             <span>
@@ -843,6 +850,7 @@ export function Transcript({
           </div>
         )}
         {renderOverlay?.(ref)}
+      </ScrollerSelectorContext.Provider>
     </div>
   );
 }

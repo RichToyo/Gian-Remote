@@ -41,7 +41,8 @@ import type {
   RemoteUiController,
   RemoteUiState,
 } from './types.js';
-import { emptyDraft, mutationsEnabled } from './types.js';
+import { emptyDraft, emptyTranslationUiState, mutationsEnabled } from './types.js';
+import type { RemoteTranslationUiState } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Scenario / scripting
@@ -82,6 +83,9 @@ export interface HostData {
   snapshotReceivedAt?: number | null;
   transcripts?: Record<string, TranscriptItem[]>;
   transcriptsStreaming?: Record<string, boolean>;
+  /** Per-session translation UI projection overrides (merged onto the empty
+   *  default — a fixture only sets the fields its scenario exercises). */
+  translations?: Record<string, Partial<RemoteTranslationUiState>>;
 }
 
 export interface FixtureTestHooks {
@@ -408,6 +412,7 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
     mobilePage: scenario.mobilePage ?? 'chat',
     transcripts: transcriptsOf(initial),
     drafts: {},
+    translations: translationsOf(initial),
     queueNotice: scenario.queueNotice ?? null,
     fileViewer: scenario.fileViewer ?? null,
     fileDownload: { status: 'idle' },
@@ -428,6 +433,15 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
           loadingOlder: false,
           historyError: null,
         },
+      ]),
+    );
+  }
+
+  function translationsOf(data: HostData): RemoteUiState['translations'] {
+    return Object.fromEntries(
+      Object.entries(data.translations ?? {}).map(([sid, value]) => [
+        sid,
+        { ...emptyTranslationUiState(), ...value },
       ]),
     );
   }
@@ -674,6 +688,7 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
         snapshotReceivedAt: data.snapshotReceivedAt ?? null,
         transcripts: transcriptsOf(data),
         drafts: {},
+        translations: translationsOf(data),
         queueNotice: null,
         fileViewer: null,
         fileDownload: { status: 'idle' },
@@ -793,6 +808,56 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
     retryTranscript() {},
 
     loadOlderTranscript() {},
+
+    setAutoTranslation(sessionId, enabled) {
+      const ui = state.translations[sessionId] ?? emptyTranslationUiState();
+      if (!ui.supported || !guardMutation()) return;
+      if (enabled && !ui.configured) {
+        update({ translations: { ...state.translations, [sessionId]: { ...ui, error: 'translation.configureFirst' } } });
+        return;
+      }
+      update({
+        translations: {
+          ...state.translations,
+          [sessionId]: { ...ui, enabled, error: '', revision: ui.revision + 1 },
+        },
+      });
+    },
+
+    toggleReadTranslation(sessionId, sourceId) {
+      const ui = state.translations[sessionId] ?? emptyTranslationUiState();
+      if (!ui.supported) return;
+      const expanded = !(ui.expandOverrides[sourceId] ?? ui.enabled);
+      update({
+        translations: {
+          ...state.translations,
+          [sessionId]: { ...ui, expandOverrides: { ...ui.expandOverrides, [sourceId]: expanded } },
+        },
+      });
+    },
+
+    retryReadTranslation() {},
+
+    retryTranslationText() {},
+
+    retryTranslationSend() {},
+
+    sendOriginalTranslation() {},
+
+    reclaimTranslationSend(sessionId) {
+      const ui = state.translations[sessionId];
+      const gate = ui?.send;
+      if (!gate || gate.phase === 'dispatching' || gate.phase === 'unknown') return;
+      const echoId = `translation-echo:${gate.submissionId}`;
+      const transcript = state.transcripts[sessionId];
+      update({
+        drafts: { ...state.drafts, [sessionId]: gate.draft },
+        translations: { ...state.translations, [sessionId]: { ...ui, send: null } },
+        ...(transcript
+          ? { transcripts: { ...state.transcripts, [sessionId]: { ...transcript, items: transcript.items.filter(item => item.id !== echoId) } } }
+          : {}),
+      });
+    },
 
     editQueueEntry(sessionId, queueId, text) {
       if (!guardMutation() || !capability('queue.update')) return;

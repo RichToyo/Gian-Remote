@@ -11,7 +11,16 @@
  */
 
 export interface MsgItem {
-  translation?: import('@gian/shared').TranslationRecord;
+  /** Sent-translation display payload, intentionally minimal. Gian Web
+   *  assigns its full TranslationRecord (structurally compatible); Remote
+   *  Web assigns the negotiated wire DTO. `text` is the COMPLETE translation
+   *  — a descriptor-only wire DTO (no text yet) renders nothing until its
+   *  paged full text arrives; it is never a truncated prefix. */
+  translation?: { id?: string; text?: string; targetLanguage?: string; textSha256?: string; fetchError?: boolean };
+  /** Canonical delivery identity of a user message (Remote wire
+   *  delivery_id) — used to adopt an optimistic echo by identity, never by
+   *  text equality. */
+  deliveryId?: string;
   kind: 'user' | 'assistant';
   id: string;
   text: string;

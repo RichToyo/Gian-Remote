@@ -61,6 +61,7 @@ function emptyState(): RemoteUiState {
     mobilePage: 'chat',
     transcripts: {},
     drafts: {},
+    translations: {},
     queueNotice: null,
     fileViewer: null,
     fileDownload: { status: 'idle' },
@@ -2384,6 +2385,7 @@ describe('production controller operations', () => {
 
 class FakeRelay implements DeviceRelayLike {
   isOpen = false;
+  negotiatedCapabilities: readonly string[] | null = null;
   private closed = false;
   readonly sent: Array<{
     type?: string;

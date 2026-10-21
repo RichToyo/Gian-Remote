@@ -179,3 +179,52 @@ describe('Transcript body', () => {
     expect(container.querySelector('.msg-foot .msg-copy')).not.toBeNull();
   });
 });
+
+describe('Transcript scroll-follow scroller resolution', () => {
+  function defineScrollMetrics() {
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', { configurable: true, get: () => 1000 });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 200 });
+    return () => {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).scrollHeight;
+      delete (HTMLElement.prototype as Partial<HTMLElement>).clientHeight;
+    };
+  }
+
+  it('pins the scrollerSelector container to the bottom on mount and on new items', () => {
+    const restore = defineScrollMetrics();
+    try {
+      const { container, rerender } = render(
+        <div className="sidechat-scroll">
+          <Transcript items={[userMsg()]} pending={false} onApprove={onApprove} scrollerSelector=".sidechat-scroll" />
+        </div>,
+      );
+      const scroller = container.querySelector('.sidechat-scroll') as HTMLElement;
+      expect(scroller.scrollTop).toBe(1000);
+
+      // jsdom fires no scroll event for programmatic scrollTop, so the pin
+      // stays engaged and the next item re-pins the container.
+      scroller.scrollTop = 0;
+      rerender(
+        <div className="sidechat-scroll">
+          <Transcript items={[userMsg(), assistantMsg()]} pending={false} onApprove={onApprove} scrollerSelector=".sidechat-scroll" />
+        </div>,
+      );
+      expect(scroller.scrollTop).toBe(1000);
+    } finally {
+      restore();
+    }
+  });
+
+  it('falls back to the transcript element when the selector matches nothing', () => {
+    const restore = defineScrollMetrics();
+    try {
+      const { container } = render(
+        <Transcript items={[userMsg()]} pending={false} onApprove={onApprove} scrollerSelector=".missing-scroll" />,
+      );
+      const transcript = container.querySelector('.transcript') as HTMLElement;
+      expect(transcript.scrollTop).toBe(1000);
+    } finally {
+      restore();
+    }
+  });
+});

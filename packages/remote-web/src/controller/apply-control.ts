@@ -46,6 +46,9 @@ export function applySnapshotToState(
     drafts: Object.fromEntries(
       Object.entries(state.drafts).filter(([sessionId]) => sessionIds.has(sessionId)),
     ),
+    translations: Object.fromEntries(
+      Object.entries(state.translations).filter(([sessionId]) => sessionIds.has(sessionId)),
+    ),
     ...(state.fileViewer && !sessionIds.has(state.fileViewer.handle.sessionId)
       ? { fileViewer: null, fileDownload: { status: 'idle' as const } }
       : {}),
@@ -126,12 +129,16 @@ export function mergeRemotePatch(state: RemoteUiState, patch: RemoteStatePatch):
     const drafts = Object.fromEntries(
       Object.entries(next.drafts).filter(([sessionId]) => sessionIds.has(sessionId)),
     );
+    const translations = Object.fromEntries(
+      Object.entries(next.translations).filter(([sessionId]) => sessionIds.has(sessionId)),
+    );
     const currentRemoved = next.view.kind === 'chat' && !sessionIds.has(next.view.sessionId);
     next = {
       ...next,
       sessions,
       transcripts,
       drafts,
+      translations,
       interactions: next.interactions.filter((interaction) => sessionIds.has(interaction.session_id)),
       ...(next.fileViewer && !sessionIds.has(next.fileViewer.handle.sessionId)
         ? { fileViewer: null, fileDownload: { status: 'idle' as const } }
@@ -271,6 +278,21 @@ export function applyRemoteTranscriptItem(
           url: attachment.reference ?? attachment.id,
           size: attachment.size,
         })),
+      } : {}),
+      // Identity-first echo adoption: the wire delivery_id, never text
+      // equality, links the canonical user message to a gated send.
+      ...(item.delivery_id ? { deliveryId: item.delivery_id } : {}),
+      // Minimal display shape only — the wire DTO never carries the full
+      // Host TranslationRecord (Agent/model stay on the Host). A
+      // descriptor-only summary (no inline text) pages its complete text
+      // through translation.result_text before rendering.
+      ...(item.translation ? {
+        translation: {
+          id: item.translation.id,
+          targetLanguage: item.translation.target_language,
+          textSha256: item.translation.text_sha256,
+          ...(item.translation.text !== undefined ? { text: item.translation.text } : {}),
+        },
       } : {}),
     });
   }

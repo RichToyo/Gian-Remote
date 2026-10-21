@@ -11,9 +11,10 @@
 import { useRef, useState } from 'react';
 import type { RemoteSession } from '@gian/remote-protocol';
 import type { EffectiveCapabilities } from '@gian/remote-protocol';
-import { isNativeImageMime } from '@gian/chat-ui';
+import { AutoTranslationChip, isNativeImageMime } from '@gian/chat-ui';
 import { draftIsEmpty, emptyDraft, mutationsEnabled } from '../controller/types.js';
 import type { DraftState } from '../controller/types.js';
+import { translationUiFor } from '../controller/translation.js';
 import { useT } from '../i18n/index.js';
 import { useRemoteActions, useRemoteState } from './controller-context.js';
 import { Icon } from './icons.js';
@@ -465,6 +466,10 @@ export function Composer({ session }: { session: RemoteSession }) {
   const contextLabel = contextPercent === null ? t('chat.context.pending')
     : t('chat.context.usage', { percent: String(contextPercent), used: session.context_tokens_used!.toLocaleString('en'),
       capacity: session.context_window_tokens!.toLocaleString('en') });
+  const translation = translationUiFor(state.translations, session.id);
+  const translationSaving = Object.values(state.mutations).some(
+    (mutation) => mutation.label === 'translation.set_auto' && mutation.phase === 'pending',
+  );
 
   const toggleSheet = (page: 'root' | 'model' | 'thinking') => {
     setSheetPage(page);
@@ -549,6 +554,15 @@ export function Composer({ session }: { session: RemoteSession }) {
             </>
           )}
           <span className="spacer" style={{ flex: 1 }} />
+          {translation.supported && (
+            <AutoTranslationChip
+              on={translation.enabled}
+              disabled={!online || translationSaving || Boolean(translation.send)}
+              title={t('translation.auto')}
+              testId="rw-translation-chip"
+              onClick={() => actions.setAutoTranslation(session.id, !translation.enabled)}
+            />
+          )}
           {approvalModes.length > 0 && (
             <button
               type="button"
@@ -578,6 +592,15 @@ export function Composer({ session }: { session: RemoteSession }) {
             <Icon name={isStop ? 'stop' : 'send'} size={13} />
           </button>
         </div>
+        {translation.supported && translation.error && (
+          <div className="translation-error" role="alert">
+            {translation.error === 'translation.configureFirst'
+              ? t('translation.configureFirst')
+              : translation.error === 'translation.reclaimKeptAside'
+                ? t('translation.reclaimKeptAside')
+                : translation.error}
+          </div>
+        )}
       </div>
       {sheetOpen && (
         <ModelSheet session={session} onClose={() => setSheetOpen(false)} mode={mode} initialPage={sheetPage} />

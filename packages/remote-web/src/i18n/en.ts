@@ -162,6 +162,9 @@ export const EN: Messages = {
     'The last command outcome is unconfirmed — refresh the state; it is not retried automatically.',
   'chat.unknown.refresh': 'Refresh state',
   'chat.stale.note': 'mutations disabled · the server rejects new commands (HOST_OFFLINE); payloads are not stored',
+  'translation.auto': 'Auto translate',
+  'translation.configureFirst': 'Choose an available local translation Agent and model in Settings first.',
+  'translation.reclaimKeptAside': 'The composer has newer text — the original is kept aside and will restore when the composer is empty.',
 
   // Queue
   'queue.title': 'Queued',

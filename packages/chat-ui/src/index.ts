@@ -52,6 +52,8 @@ export {
 } from './links/favicon-store.js';
 export { CopyButton } from './copy-button.js';
 export * from './items.js';
+export * from './translation.js';
+export * from './send-timeout.js';
 export { ApprovalLine } from './approval-cards.js';
 export * from './event-lines.js';
 export { ContextCards } from './context-cards.js';

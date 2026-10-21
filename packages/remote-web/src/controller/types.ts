@@ -147,6 +147,102 @@ export interface TranscriptState {
 export type QueueNotice = { kind: 'replaced-remotely' } | null;
 
 // ---------------------------------------------------------------------------
+// Conversation translation (wire.conversation_translation). The Host is the
+// single source of truth; this is the per-session UI projection. Nothing
+// here carries Agent/model configuration — only display-safe fields.
+// ---------------------------------------------------------------------------
+
+/** Settled reading translation (minimal wire DTO), keyed by source_id.
+ *  `text` is the complete translation — either inline from the wire or paged
+ *  through translation.result_text into `fullTexts` first; a descriptor-only
+ *  record (no text yet) is never presented as complete. */
+export interface ReadingTranslationRecord {
+  id: string;
+  targetLanguage: string;
+  text?: string;
+  textLength: number;
+  textSha256: string;
+  sourceSha256: string;
+}
+
+/** Send gate for one translated send: the draft leaves the composer into the
+ *  gate and only a Host-confirmed outcome (or an explicit user choice)
+ *  settles it. Never silently falls back to the original text.
+ *
+ *  `submissionId` is the stable echo/draft identity across translation
+ *  retries and reconnect restarts; `requestId` is the per-attempt
+ *  translation request generation; `sendCommandId` is the fixed dispatch
+ *  command identity recovered by command.status after a lost ACK.
+ *
+ *  Phases: translating (awaiting the receipt) → dispatching (the real
+ *  session.send is in flight) → cleared. dispatching degrades to unknown on
+ *  disconnect; failed offers retry / send-original / reclaim. */
+export type TranslationSendGate =
+  | { phase: 'translating'; submissionId: string; requestId: string; draft: DraftState }
+  | { phase: 'dispatching'; submissionId: string; requestId: string; draft: DraftState; sendCommandId: string; deliveryId?: string }
+  | { phase: 'unknown'; submissionId: string; requestId: string; draft: DraftState; sendCommandId: string; deliveryId?: string }
+  | { phase: 'failed'; submissionId: string; requestId: string; draft: DraftState; error: string; timedOut: boolean };
+
+export interface RemoteTranslationUiState {
+  /** The connection negotiated the feature and the session is translatable
+   *  (an exported execution never is). false hides every translation affordance. */
+  supported: boolean;
+  enabled: boolean;
+  /** Host reports a usable saved translation Agent/model/language config. */
+  configured: boolean;
+  sendingLanguage: string;
+  readingLanguage: string;
+  /** Automatic reading-translation progress, keyed by source_id (turn:N). */
+  automatic: Record<string, { pending: boolean; error?: string }>;
+  /** Settled reading translations, keyed by source_id. */
+  results: Record<string, ReadingTranslationRecord[]>;
+  /** Full texts paged in for descriptor-only records, keyed by record id. */
+  fullTexts: Record<string, string>;
+  /** Descriptor paging failures, keyed by record id — the row shows an
+   *  actionable error with in-place retry instead of endless Translating. */
+  fullTextErrors: Record<string, boolean>;
+  /** Manual (globe) reading requests in flight, keyed by source_id. The
+   *  requestId is the durable operation identity used to recover a lost
+   *  terminal status via translation.request_status on reconnect. */
+  reading: Record<string, { pending: boolean; requestId?: string; error?: string }>;
+  /** Per-view expand overrides — deliberately never synced to other views. */
+  expandOverrides: Record<string, boolean>;
+  /** Monotonic Host switch revision; older states never overwrite it. */
+  revision: number;
+  /** Host-wide translation-preferences revision (configured/languages). */
+  configRevision: number;
+  /** Per-session automatic-progress version + the Host process epoch that
+   *  issued it. Wholesale state applies `automatic` only when not older. */
+  automaticRevision: number;
+  automaticEpoch: string;
+  send: TranslationSendGate | null;
+  /** Display-safe note (configure-first hint / rejected toggle). */
+  error: string;
+}
+
+export function emptyTranslationUiState(): RemoteTranslationUiState {
+  return {
+    supported: false,
+    enabled: false,
+    configured: false,
+    sendingLanguage: '',
+    readingLanguage: '',
+    automatic: {},
+    results: {},
+    fullTexts: {},
+    fullTextErrors: {},
+    reading: {},
+    expandOverrides: {},
+    revision: 0,
+    configRevision: 0,
+    automaticRevision: 0,
+    automaticEpoch: '',
+    send: null,
+    error: '',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Interaction cards — UI-level lifecycle of a wire RemoteInteraction.
 // ---------------------------------------------------------------------------
 
@@ -269,6 +365,9 @@ export interface RemoteUiState {
 
   transcripts: Record<string, TranscriptState>;
   drafts: Record<string, DraftState>;
+  /** Per-session conversation-translation projection (host-scoped; cleared
+   *  on host switch exactly like transcripts). */
+  translations: Record<string, RemoteTranslationUiState>;
   queueNotice: QueueNotice;
   /** Currently open file viewer (null = closed). */
   fileViewer: FileViewerState | null;
@@ -340,6 +439,24 @@ export interface RemoteUiActions {
   }): void;
   retryTranscript(sessionId: string): void;
   loadOlderTranscript(sessionId: string): void;
+
+  // Conversation translation (no-ops when the feature is unavailable)
+  /** Explicit enabled value — never a blind toggle; the Host-confirmed state
+   *  lands in `translations[sessionId]` via the command result / event. */
+  setAutoTranslation(sessionId: string, enabled: boolean): void;
+  /** globe toggle: expand shows the cached record instantly or kicks off the
+   *  translation; collapse only hides the block. */
+  toggleReadTranslation(sessionId: string, sourceId: string, text: string): void;
+  /** Force a fresh reading translation (error retry / language changed). */
+  retryReadTranslation(sessionId: string, sourceId: string, text: string): void;
+  /** Retry paging a descriptor-only translation's full text in place after a
+   *  chunk failure or hash mismatch (the record itself is settled). */
+  retryTranslationText(sessionId: string, recordId: string): void;
+  retryTranslationSend(sessionId: string): void;
+  /** Explicit untranslated dispatch of the gated draft ('original'). */
+  sendOriginalTranslation(sessionId: string): void;
+  /** Give the gated text back to the composer and cancel the translation. */
+  reclaimTranslationSend(sessionId: string): void;
 
   // Queue (all carry the current queue revision as precondition)
   editQueueEntry(sessionId: string, queueId: string, text: string): void;

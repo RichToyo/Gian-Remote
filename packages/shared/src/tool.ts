@@ -343,6 +343,10 @@ export interface GianToolMethodParams {
     items?: InputItem[];
     context_items?: MessageContextItem[];
     composer_document?: ComposerDocument;
+    /** Prepared send-translation receipt id (TranslationService record), or
+     *  'original' for an explicit untranslated send. Revalidated Host-side
+     *  against the exact source text/document before dispatch. */
+    translation_id?: string;
   };
   'session.cancel_delivery': { delivery_id: string };
   'session.wait': {
@@ -761,12 +765,13 @@ export function validateGianToolParams<M extends GianToolMethod>(
       if (typeof input['archived'] !== 'boolean') invalid('params.archived must be a boolean');
       break;
     case 'session.send':
-      exact(input, ['session_id', 'text', 'busy', 'items', 'context_items', 'composer_document'], 'params');
+      exact(input, ['session_id', 'text', 'busy', 'items', 'context_items', 'composer_document', 'translation_id'], 'params');
       requireId(input, 'session_id'); requireId(input, 'text');
       if (input['busy'] !== undefined) enumValue(input['busy'], new Set(['queue', 'fail', 'steer']), 'params.busy');
       inputItems(input['items'], 'params.items');
       contextItems(input['context_items'], 'params.context_items');
       composerDocument(input['composer_document'], 'params.composer_document');
+      optionalString(input['translation_id'], 'params.translation_id');
       break;
     case 'session.cancel_delivery':
       exact(input, ['delivery_id'], 'params'); requireId(input, 'delivery_id');

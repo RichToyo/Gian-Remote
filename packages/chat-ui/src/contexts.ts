@@ -39,6 +39,11 @@ export const ChatPanelOpenContext = createContext<
  * `LinkBehaviorContext` (see `links/LinkBehaviorContext.tsx`).
  */
 
+/** Selector of the ancestor that actually scrolls the transcript. Null: the
+ *  default `.main-scroll`. Set by Transcript from its `scrollerSelector` prop
+ *  so item components (e.g. `useStableExpand`) resolve the same scroller. */
+export const ScrollerSelectorContext = createContext<string | null>(null);
+
 /** Opens an image in the host app's lightbox. Null: thumbnails keep their
  *  plain `href` (new tab) behavior. */
 export const ImageZoomContext = createContext<
@@ -68,6 +73,12 @@ export interface PlanOpenPayload {
 }
 export const PlanOpenContext = createContext<
   ((payload: PlanOpenPayload) => void) | null
+>(null);
+
+/** Retries a descriptor-only translation's full-text paging for a record id.
+ *  Null: a failed sent-translation fetch renders no retry affordance. */
+export const TranslationTextRetryContext = createContext<
+  ((recordId: string) => void) | null
 >(null);
 
 /**

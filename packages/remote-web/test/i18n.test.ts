@@ -39,6 +39,7 @@ function baseState(): RemoteUiState {
     mobilePage: 'chat',
     transcripts: {},
     drafts: {},
+    translations: {},
     queueNotice: null,
     fileViewer: null,
     fileDownload: { status: 'idle' },

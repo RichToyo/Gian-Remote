@@ -1,5 +1,23 @@
 # Gian Remote Changelog
 
+## [1.4.0] - Unreleased
+
+- Publishes from RichToyo/Gian-Remote with English-only product copy.
+- Requires the separately published Remote Protocol 1.4.0 package and a
+  compatible Gian Host; source preparation does not deploy either component.
+
+- Conversation translation sync (requires a Gian Host with
+  `wire.conversation_translation`; older Hosts keep plain chat): the Auto
+  translate chip mirrors the local switch both ways in real time, sent and
+  reading translations render under the original message (real-time, history
+  pages, refresh and reconnect), the globe toggle expands/collapses per view, and
+  automatic sending translates first with the same 45s timeout / retry /
+  send-original / take-text-back gate as local Gian. Translation executes on
+  the paired Host with its saved settings; the browser and Remote Server
+  never see Agent or model configuration.
+- The send gate restores an interrupted draft into the composer after a
+  refresh instead of resending it.
+
 ## [1.3.0] - 2026-10-19
 
 - Remote Web follows the Host's configured interface language (English or

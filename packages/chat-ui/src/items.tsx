@@ -6,6 +6,8 @@ import {
   ImageZoomContext,
   MessageAttachmentOpenContext,
   ScheduleOpenContext,
+  TranslationTextRetryContext,
+  ScrollerSelectorContext,
 } from './contexts.js';
 import type { AgentSpawnItem, AutoNoticeItem, CommandItem, CompactionItem, DiffItem, FileReadItem, FileSearchItem, MsgItem, ReasoningItem, ToolItem, WebSearchItem } from './types.js';
 import type { MessageAttachment } from '@gian/shared';
@@ -31,6 +33,7 @@ export { formatElapsed } from './utils.js';
  */
 export function useStableExpand(initial = false) {
   const [open, setOpen] = useState(initial);
+  const scrollerSelector = useContext(ScrollerSelectorContext) ?? '.main-scroll';
   const pending = useRef<{ el: HTMLElement; top: number } | null>(null);
   const toggle = (e: MouseEvent<HTMLElement>) => {
     pending.current = { el: e.currentTarget, top: e.currentTarget.getBoundingClientRect().top };
@@ -40,7 +43,7 @@ export function useStableExpand(initial = false) {
     const rec = pending.current;
     pending.current = null;
     if (!rec) return;
-    const scroller = rec.el.closest('.main-scroll') as HTMLElement | null;
+    const scroller = rec.el.closest(scrollerSelector) as HTMLElement | null;
     if (scroller) scroller.scrollTop += rec.el.getBoundingClientRect().top - rec.top;
   });
   return { open, setOpen, toggle };
@@ -409,6 +412,7 @@ export function UserMessage({
   const zoom = useContext(ImageZoomContext);
   const openAttachment = useContext(MessageAttachmentOpenContext);
   const openSchedule = useContext(ScheduleOpenContext);
+  const retryTranslationText = useContext(TranslationTextRetryContext);
   // Echo lifecycle: `pending` until the server emits its `user_message`;
   // `failed` marks a rejected send IN PLACE with a retry affordance.
   const stateCls = item.pending ? ' pending' : item.failed ? ' failed' : '';
@@ -502,10 +506,25 @@ export function UserMessage({
           </div>
         )}
         {sendStatus}
-        {item.translation && <div className="translation-block translation-sent">
+        {item.translation?.text !== undefined && <div className="translation-block translation-sent">
           <div className="translation-label">{t('translation.sentLabel')}</div>
           <div className="translation-bubble md"><MarkdownText>{item.translation.text}</MarkdownText></div>
         </div>}
+        {/* A descriptor-only sent translation whose full-text paging failed
+            gets an actionable in-place retry — never an invisible endless
+            pending. No retry context: the block stays hidden until text. */}
+        {item.translation?.text === undefined && item.translation?.fetchError === true
+          && retryTranslationText && item.translation.id && (
+          <div className="translation-block translation-sent">
+            <div className="translation-label">{t('translation.sentLabel')}</div>
+            <div className="translation-error" role="alert">{t('translation.loadFailed')}
+              <button type="button" className="btn xs secondary"
+                onClick={() => retryTranslationText(item.translation!.id!)}>
+                {t('translation.retry')}
+              </button>
+            </div>
+          </div>
+        )}
         {/* Composer-document messages render attachments as inline chips
             inside the text; the classic .msg-attachments block above is
             suppressed for them, so image attachments get their previews back
