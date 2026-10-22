@@ -1,5 +1,19 @@
 # Gian Remote Changelog
 
+## [1.4.2] - 2026-10-22
+
+- Offline deployment works across classic Docker and containerd image stores,
+  which can expose different immutable IDs for the same saved image. New
+  schema-3 receipts distinguish the build daemon ID, config digest and OCI
+  manifest digest, with their links verified directly from the single-image
+  archive before deployment.
+- Apply resolves only an archive-bound local image, verifies its platform,
+  source, layers and migrations before stopping the service, and uses that
+  immutable ID for startup, backup, health checks and retries. Ambiguous or
+  unsupported archives fail closed without registry pulls or tag fallbacks.
+- Existing 1.4.1 release assets remain immutable; this compatibility fix is
+  delivered as a new release, not replacement metadata for an older archive.
+
 ## [1.4.1] - 2026-10-22
 
 - Remote Web shows Working as soon as the Host confirms an active turn,

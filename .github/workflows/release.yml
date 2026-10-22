@@ -94,7 +94,8 @@ jobs:
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_ID")" = "$PLATFORM"
           bash scripts/smoke-image.sh "$IMAGE_ID" "$RELEASE_SHA"
           mkdir artifacts
-          # Saving the tested config ID is not a registry-manifest export.
+          # The daemon ID may be a config or manifest digest. The archive
+          # parser must cryptographically link both to this exact tested image.
           docker save "$IMAGE_ID" | gzip -n > "artifacts/gian-remote-$RELEASE_TAG-linux-$ARCH.tar.gz"
           node scripts/release-metadata.mjs image artifacts "$ARCH" "$IMAGE_ID"
       - uses: actions/upload-artifact@v4

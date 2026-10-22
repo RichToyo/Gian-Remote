@@ -56,7 +56,7 @@ healthy() {
   for ((attempt=0; attempt<${REMOTE_DEPLOY_HEALTH_ATTEMPTS:-30}; attempt++)); do
     id=$(compose "$directory" ps -q remote)
     if [[ -n "$id" ]]; then
-      [[ "$(docker inspect --format '{{.Image}}' "$id")" == "$expected_image" ]] || return 1
+      python3 "$release/offline-release.py" container "$directory" "$arch" "$id" "$expected_image" || return 1
       state=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
       if [[ "$state" == healthy ]]; then
         docker exec "$id" node -e \
@@ -87,7 +87,7 @@ fi
 # Integrity, server platform and cached rollback availability passed. Loading
 # and inspecting the candidate still happen before any current service stop.
 docker load --input "$release/$archive"
-python3 "$release/offline-release.py" image "$release" "$arch"
+image=$(python3 "$release/offline-release.py" image "$release" "$arch")
 if [[ "$previous" == "$release" ]] && healthy "$release" "$revision" "$image"; then
   echo 'This exact release is already healthy'; exit 0
 fi

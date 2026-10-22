@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { archiveName, checksumText, json, readReceipt, repository, sha256, tooling, validateReleaseReceipt, verifyOfflineBundle } from '../scripts/release-metadata.mjs';
 import { deploySsh, deploymentTarget, downloadRelease, parseArgs } from '../scripts/deploy-ssh.mjs';
+import { imageArchive } from './image-archive-fixture.mjs';
 
 function fixture(t) {
   const directory = mkdtempSync(join(tmpdir(), 'remote-offline-test-'));
@@ -22,9 +23,11 @@ function fixture(t) {
     const bytes = Buffer.from('fake docker-save archive for ' + arch);
     const file = archiveName('v1.2.3', arch);
     if (arch === 'amd64') writeFileSync(join(directory, file), bytes);
-    return { platform: 'linux/' + arch, imageId: 'sha256:' + String(index + 1).repeat(64), ...describe(file, bytes) };
+    const configDigest = 'sha256:' + String(index + 1).repeat(64);
+    return { platform: 'linux/' + arch, buildImageId: configDigest, configDigest,
+      manifestDigest: 'sha256:' + String(index + 3).repeat(64), ...describe(file, bytes) };
   });
-  const receipt = { schema: 2, repository, tag: 'v1.2.3', version: '1.2.3', sourceCommit: 'a'.repeat(40),
+  const receipt = { schema: 3, repository, tag: 'v1.2.3', version: '1.2.3', sourceCommit: 'a'.repeat(40),
     sourceDevCommit: 'b'.repeat(40), dataSchema: 'c'.repeat(64), images, tooling: tools };
   const write = value => {
     writeFileSync(join(directory, 'remote-release.json'), json(value));
@@ -63,13 +66,15 @@ function fixture(t) {
   return { directory, receipt, write, published, tree, calls, run, options };
 }
 
-test('schema 2 binds both platforms, config IDs, archive names, source and migration schema; old receipts fail closed', t => {
+test('schema 3 distinguishes build/config/manifest IDs and rejects unbound or legacy metadata', t => {
   const f = fixture(t);
   assert.equal(validateReleaseReceipt(f.receipt, { repository, tag: 'v1.2.3', revision: 'a'.repeat(40) }), f.receipt);
-  for (const change of [{ schema: 1 }, { extra: true }, { tag: 'v1.2.3-beta1' }, { dataSchema: '' },
+  for (const change of [{ schema: 1 }, { schema: 2 }, { extra: true }, { tag: 'v1.2.3-beta1' }, { dataSchema: '' },
     { sourceCommit: 'bad' }, { repository: 'RichLogic/Gian-Remote' }, { images: f.receipt.images.slice(0, 1) },
     { images: [{ ...f.receipt.images[0], file: '../image.tar.gz' }, f.receipt.images[1]] },
-    { images: [{ ...f.receipt.images[0], imageId: 'gian-remote:latest' }, f.receipt.images[1]] },
+    { images: [{ ...f.receipt.images[0], buildImageId: 'gian-remote:latest' }, f.receipt.images[1]] },
+    { images: [{ ...f.receipt.images[0], buildImageId: 'sha256:' + 'f'.repeat(64) }, f.receipt.images[1]] },
+    { images: [{ ...f.receipt.images[0], manifestDigest: f.receipt.images[0].configDigest }, f.receipt.images[1]] },
     { images: [{ ...f.receipt.images[0], platform: 'linux/arm64' }, f.receipt.images[1]] },
     { tooling: [{ ...f.receipt.tooling[0], source: 'other.sh' }, ...f.receipt.tooling.slice(1)] },
   ]) assert.throws(() => validateReleaseReceipt({ ...f.receipt, ...change }));
@@ -83,11 +88,12 @@ test('receipt creation checks both saved artifacts and preserves immutable outpu
   writeFileSync(join(base, '.gian-source.json'), json({ workingTree: false, sourceCommit: 'b'.repeat(40) }));
   writeFileSync(join(base, 'packages/remote-server/migrations/001.sql'), 'fixture migration');
   for (const item of tooling) copyFileSync(fileURLToPath(new URL('../' + item.source, import.meta.url)), join(base, item.source));
-  for (const [index, arch] of ['amd64', 'arm64'].entries()) {
-    const bytes = Buffer.from('saved image for ' + arch); const file = archiveName('v1.2.3', arch);
+  for (const arch of ['amd64', 'arm64']) {
+    const saved = imageArchive({ arch }); const bytes = saved.bytes; const file = archiveName('v1.2.3', arch);
     writeFileSync(join(base, 'artifacts', file), bytes);
     writeFileSync(join(base, 'artifacts/image-' + arch + '.json'), json({ sourceCommit: 'a'.repeat(40), tag: 'v1.2.3',
-      platform: 'linux/' + arch, imageId: 'sha256:' + String(index + 1).repeat(64), file, size: bytes.length, sha256: sha256(bytes) }));
+      platform: 'linux/' + arch, buildImageId: saved.configDigest, configDigest: saved.configDigest,
+      manifestDigest: saved.manifestDigest, file, size: bytes.length, sha256: sha256(bytes) }));
   }
   const run = () => spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/release-metadata.mjs', import.meta.url)), 'create', 'remote-release.json'],
     { cwd: base, env: { ...process.env, GITHUB_REPOSITORY: repository, RELEASE_TAG: 'v1.2.3', RELEASE_SHA: 'a'.repeat(40) }, encoding: 'utf8' });
@@ -101,6 +107,25 @@ test('receipt creation checks both saved artifacts and preserves immutable outpu
   writeFileSync(join(base, 'artifacts', archiveName('v1.2.3', 'arm64')), 'corrupted');
   assert.notEqual(run().status, 0);
   assert.equal(existsSync(join(base, 'remote-release.json')), false);
+});
+
+test('standard tar parser binds exactly one OCI/Docker image and rejects ambiguous or corrupt shapes', t => {
+  const base = mkdtempSync(join(tmpdir(), 'remote-archive-binding-'));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const script = fileURLToPath(new URL('../scripts/offline-release.py', import.meta.url));
+  const archive = join(base, 'image.tar.gz');
+  const run = () => spawnSync('python3', [script, 'archive', archive, 'amd64', 'a'.repeat(40), 'v1.2.3'], { encoding: 'utf8' });
+  const saved = imageArchive();
+  writeFileSync(archive, saved.bytes);
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.notEqual(saved.configDigest, saved.manifestDigest);
+  assert.deepEqual(JSON.parse(result.stdout), { configDigest: saved.configDigest, manifestDigest: saved.manifestDigest });
+  for (const mutation of ['duplicate', 'traversal', 'symlink', 'duplicate-json', 'config-corrupt', 'layer-corrupt',
+    'manifest-link', 'docker-mismatch', 'multi-image', 'multi-index', 'extra-manifest', 'missing-index', 'unsupported-layer', 'wrong-platform']) {
+    writeFileSync(archive, imageArchive({ mutation }).bytes);
+    assert.notEqual(run().status, 0, mutation);
+  }
 });
 
 test('explicit target selection rejects shell injection and preserves configured SSH ports when no override is selected', () => {
@@ -228,7 +253,7 @@ test('download publishes a verified local directory atomically; retry uses exist
   assert.equal(readReceipt(destination).receiptHash, sha256(json(f.receipt)));
 });
 
-test('release saves the smoke-tested config ID; hosted/restricted deployment entrypoints cannot deploy or pull', () => {
+test('release saves the exact smoke-tested daemon ID and binds its archive; hosted deployment stays retired', () => {
   const release = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
   assert.ok(release.indexOf('bash scripts/smoke-image.sh "$IMAGE_ID"') < release.indexOf('docker save "$IMAGE_ID"'));
   assert.match(release, /gzip -n/);

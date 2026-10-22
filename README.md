@@ -107,15 +107,24 @@ and compressed [load](https://docs.docker.com/reference/cli/docker/image/load/) 
 The stable Release publishes:
 
 - gian-remote-vX.Y.Z-linux-amd64.tar.gz and the corresponding arm64 archive.
-- remote-release.json (schema 2), binding both platforms, Docker image/config
-  IDs, archive names/sizes/SHA-256, source commits and migration fingerprint.
+- remote-release.json (schema 3), binding both platforms, the build daemon's
+  image ID, config digest, OCI manifest digest, archive names/sizes/SHA-256,
+  source commits and migration fingerprint.
 - SHA256SUMS, compose.yaml, deploy.sh and offline-release.py. Deployment
   tooling hashes are in the receipt and must also match the tagged Git blobs.
 
-An image/config ID is not a registry manifest digest. This delivery path uses
-the saved image's local ID, never a registry reference. A published release
-cannot be rebuilt or have assets replaced through this entrypoint. Existing
-schema-1 registry releases/assets stay immutable; the offline CLI rejects them.
+Classic Docker and containerd stores can expose the config digest or the OCI
+manifest digest as the local image ID. CI and server preflight share a Python
+standard-library parser that reads (never extracts) the supported single-image
+OCI-compatible docker-save archive, hashes its blobs and verifies the index,
+Docker manifest, OCI manifest, config and uncompressed-layer links. Duplicate,
+unsafe, ambiguous or unsupported shapes fail closed. The build daemon ID must
+be one of those linked identities; no arbitrary load-output ID or tag is used.
+See the [upstream image-store distinction](https://github.com/moby/moby/issues/51934).
+
+A published release cannot be rebuilt or have assets replaced through this
+entrypoint. Existing schema-1 and schema-2 release assets, including 1.4.1,
+stay immutable; the schema-3 download/apply flow does not retrofit them.
 Do not add fabricated offline metadata to an old release. Publish a new
 qualified version when adopting this delivery format.
 
@@ -138,7 +147,7 @@ published stable tag and the **server's** architecture, not the Mac's.
 
 ```sh
 node scripts/deploy-ssh.mjs download \
-  --tag v1.4.1 --arch amd64 --directory ./remote-v1.4.1-amd64
+  --tag v1.4.2 --arch amd64 --directory ./remote-v1.4.2-amd64
 ```
 
 Download verifies the stable public release, resolves lightweight/annotated
@@ -164,7 +173,7 @@ infer them from these examples.
 
 ```sh
 node scripts/deploy-ssh.mjs upload \
-  --directory ./remote-v1.4.1-amd64 --arch amd64 --host remote-prod \
+  --directory ./remote-v1.4.2-amd64 --arch amd64 --host remote-prod \
   --deploy-dir /srv/gian-remote --project current --volume current_remote-data
 ```
 
@@ -187,7 +196,7 @@ separate, explicit --apply choice:
 
 ```sh
 node scripts/deploy-ssh.mjs upload \
-  --directory ./remote-v1.4.1-amd64 --arch amd64 --host remote-prod \
+  --directory ./remote-v1.4.2-amd64 --arch amd64 --host remote-prod \
   --deploy-dir /srv/gian-remote --project current --volume current_remote-data \
   --apply
 ```
@@ -238,8 +247,12 @@ All uploaded bytes, receipt/source identity and target platform are checked
 under a deployment lock. Before stopping the service, apply verifies the
 actual current Compose project, named volume, port, running source/image and
 **cached immutable rollback image**. A cache miss fails without pulling or
-stopping. It loads the candidate archive, checks its exact image ID, native
-platform, source/version labels and migration fingerprint, still before stop.
+stopping. After archive linkage validation and load, it probes only the bound
+config/manifest digests and requires one unique local image ID. Its platform,
+source/version labels, root filesystem and migration fingerprint must match
+before stop. OCI descriptor digest/size/media type must match the archive when
+the local ID is a manifest digest. Generated deployment settings accept only
+the same bound identities across retries; no image metadata is overridden.
 
 Only then does it stop the old service, back up the stopped volume (SQLite,
 WAL and server identity together), and start the candidate. Backup and every

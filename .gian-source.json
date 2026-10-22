@@ -2,7 +2,7 @@
   "schema": 1,
   "product": "Gian Remote",
   "sourceRepository": "RichLogic/Gian-Dev",
-  "sourceCommit": "f44ec3aa91c0d21d6d479b72d0d867dbd76f5daf",
+  "sourceCommit": "59c874558b3025f6b189cb339d7c1f98ea6df5e3",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -60,7 +60,7 @@
     {
       "source": "delivery/remote/.github/workflows/release.yml",
       "path": ".github/workflows/release.yml",
-      "sha256": "6ef7de287a127934cc6da3fceb8feb2967cb3dc0a71bd89c8e7a1fade86f9aba"
+      "sha256": "939042f33c3b28faa2b6aa513cabe17a90de2dafb5dfdc9e03dcc074093119b8"
     },
     {
       "source": "delivery/remote/.gitignore",
@@ -70,7 +70,7 @@
     {
       "source": "delivery/remote/CHANGELOG.md",
       "path": "CHANGELOG.md",
-      "sha256": "d16917cde26c8919665904aa4257ef2f45e87d18674d3c36d689f6f467bb2ff9"
+      "sha256": "8eada1497193940bb0a265ef4b3980453b7fdea3170c55e07ff12e5d6ae95566"
     },
     {
       "source": "delivery/remote/Dockerfile",
@@ -80,7 +80,7 @@
     {
       "source": "delivery/remote/README.md",
       "path": "README.md",
-      "sha256": "95e59f4257cffdf05830bfd5fdf79e70398d38b60e07896b45d9c9936735a79b"
+      "sha256": "4b3733d9264515ff8ac70faed4970f945c9971f9a5216ec5bba57cbedea7b058"
     },
     {
       "source": "delivery/remote/compose.yaml",
@@ -95,7 +95,7 @@
     {
       "source": "delivery/remote/release.json",
       "path": "release.json",
-      "sha256": "86e1e5cea1af844c53aa21ae18a8140f26970a2b1b0a92e8a50b06fad8a0a3f7"
+      "sha256": "beee1c99a4f09695f100897851e5a8a10f715a3c9c9680b59b4bbf4aa7f4b88b"
     },
     {
       "source": "delivery/remote/runtime.env.example",
@@ -115,12 +115,12 @@
     {
       "source": "delivery/remote/scripts/deploy.sh",
       "path": "scripts/deploy.sh",
-      "sha256": "ba5233d53cabff597ba231d6ebf9cd8f8c3802b311054410b5859dd7224e9a7c"
+      "sha256": "7d357d7db6c1c0173575d68df87e92d47ea95ec6cdffd471659c479f2de561e4"
     },
     {
       "source": "delivery/remote/scripts/offline-release.py",
       "path": "scripts/offline-release.py",
-      "sha256": "31c2375223123719a48619b90b1be2934de44930322a25bfc4e594a0596607ce"
+      "sha256": "87b126caf92f86e4d5439af7daa570315d0d9422e6b5d3a3e942348806106e46"
     },
     {
       "source": "delivery/remote/scripts/prepare-existing.py",
@@ -135,7 +135,7 @@
     {
       "source": "delivery/remote/scripts/release-metadata.mjs",
       "path": "scripts/release-metadata.mjs",
-      "sha256": "cb4f9deadf95f46c0f018e0ec34bda3af36f68130e71b5387e5f186ab21648f6"
+      "sha256": "796ce0e2a43cb85679dcc8ee7d41ee47495678aae5d0acc650fc439dd4222bac"
     },
     {
       "source": "delivery/remote/scripts/smoke-image.sh",
@@ -158,6 +158,11 @@
       "sha256": "973f418669ba1457556042e93577901a14ba0cef20b57f4646ae26aef1b117d8"
     },
     {
+      "source": "delivery/remote/test/image-archive-fixture.mjs",
+      "path": "test/image-archive-fixture.mjs",
+      "sha256": "f8edd1736946b4e800a90b59619570fae2162216882953588d108325dfa8c168"
+    },
+    {
       "source": "delivery/remote/test/protocol-dependency.test.mjs",
       "path": "test/protocol-dependency.test.mjs",
       "sha256": "6daef5b40fb94a9e7e5b0e03273f17c55d55fb0de0759cedf0e8ae5d29dbb78b"
@@ -170,7 +175,7 @@
     {
       "source": "delivery/remote/test/release.test.mjs",
       "path": "test/release.test.mjs",
-      "sha256": "02fc7dbe3b79ca75a3d4f4a7a4f13554310cb9dcd74632c13e999ad877c9283b"
+      "sha256": "ae942f11db3360f9f3aece29013ea1cf757d117746745589a336f2599395094b"
     },
     {
       "source": "delivery/remote/test/runtime-bundle.test.mjs",
@@ -1370,7 +1375,7 @@
     {
       "source": "scripts/remote-deployment-system.test.mjs",
       "path": "test/deployment.test.mjs",
-      "sha256": "4f0e2f296cdb7567701faaa8f853c158aeb831829e1033a89b3f08346ec3e965"
+      "sha256": "9b3f8d4def2e5196de9541918761c6c02ab9a525aa6147b61605d7a2dccd1572"
     },
     {
       "source": "tsconfig.base.json",
@@ -1402,7 +1407,7 @@
     {
       "path": ".github/workflows/release.yml",
       "mode": 420,
-      "sha256": "6ef7de287a127934cc6da3fceb8feb2967cb3dc0a71bd89c8e7a1fade86f9aba"
+      "sha256": "939042f33c3b28faa2b6aa513cabe17a90de2dafb5dfdc9e03dcc074093119b8"
     },
     {
       "path": ".gitignore",
@@ -1417,7 +1422,7 @@
     {
       "path": "CHANGELOG.md",
       "mode": 420,
-      "sha256": "d16917cde26c8919665904aa4257ef2f45e87d18674d3c36d689f6f467bb2ff9"
+      "sha256": "8eada1497193940bb0a265ef4b3980453b7fdea3170c55e07ff12e5d6ae95566"
     },
     {
       "path": "compose.yaml",
@@ -1437,7 +1442,7 @@
     {
       "path": "package.json",
       "mode": 420,
-      "sha256": "9839e2cc99c0fe741710cbd60004239275f9ff9f55189e0ca37e1f524e6f07b0"
+      "sha256": "2f5d8ba77c49870e2ca3fc63eb271d41f01d100ed19d6c27a027fb3ae9af7d18"
     },
     {
       "path": "packages/chat-ui/package.json",
@@ -2617,12 +2622,12 @@
     {
       "path": "README.md",
       "mode": 420,
-      "sha256": "95e59f4257cffdf05830bfd5fdf79e70398d38b60e07896b45d9c9936735a79b"
+      "sha256": "4b3733d9264515ff8ac70faed4970f945c9971f9a5216ec5bba57cbedea7b058"
     },
     {
       "path": "release.json",
       "mode": 420,
-      "sha256": "86e1e5cea1af844c53aa21ae18a8140f26970a2b1b0a92e8a50b06fad8a0a3f7"
+      "sha256": "beee1c99a4f09695f100897851e5a8a10f715a3c9c9680b59b4bbf4aa7f4b88b"
     },
     {
       "path": "runtime.env.example",
@@ -2652,7 +2657,7 @@
     {
       "path": "scripts/deploy.sh",
       "mode": 420,
-      "sha256": "ba5233d53cabff597ba231d6ebf9cd8f8c3802b311054410b5859dd7224e9a7c"
+      "sha256": "7d357d7db6c1c0173575d68df87e92d47ea95ec6cdffd471659c479f2de561e4"
     },
     {
       "path": "scripts/media-review.json",
@@ -2662,7 +2667,7 @@
     {
       "path": "scripts/offline-release.py",
       "mode": 420,
-      "sha256": "31c2375223123719a48619b90b1be2934de44930322a25bfc4e594a0596607ce"
+      "sha256": "87b126caf92f86e4d5439af7daa570315d0d9422e6b5d3a3e942348806106e46"
     },
     {
       "path": "scripts/prepare-existing.py",
@@ -2682,7 +2687,7 @@
     {
       "path": "scripts/release-metadata.mjs",
       "mode": 420,
-      "sha256": "cb4f9deadf95f46c0f018e0ec34bda3af36f68130e71b5387e5f186ab21648f6"
+      "sha256": "796ce0e2a43cb85679dcc8ee7d41ee47495678aae5d0acc650fc439dd4222bac"
     },
     {
       "path": "scripts/smoke-image.sh",
@@ -2707,7 +2712,12 @@
     {
       "path": "test/deployment.test.mjs",
       "mode": 420,
-      "sha256": "4f0e2f296cdb7567701faaa8f853c158aeb831829e1033a89b3f08346ec3e965"
+      "sha256": "9b3f8d4def2e5196de9541918761c6c02ab9a525aa6147b61605d7a2dccd1572"
+    },
+    {
+      "path": "test/image-archive-fixture.mjs",
+      "mode": 420,
+      "sha256": "f8edd1736946b4e800a90b59619570fae2162216882953588d108325dfa8c168"
     },
     {
       "path": "test/protocol-dependency.test.mjs",
@@ -2722,7 +2732,7 @@
     {
       "path": "test/release.test.mjs",
       "mode": 420,
-      "sha256": "02fc7dbe3b79ca75a3d4f4a7a4f13554310cb9dcd74632c13e999ad877c9283b"
+      "sha256": "ae942f11db3360f9f3aece29013ea1cf757d117746745589a336f2599395094b"
     },
     {
       "path": "test/runtime-bundle.test.mjs",

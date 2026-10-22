@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { createReadStream, lstatSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,17 +25,20 @@ function descriptor(value, file) {
 }
 export function validateReleaseReceipt(value, expected = {}) {
   keys(value, ['schema', 'repository', 'tag', 'version', 'sourceCommit', 'sourceDevCommit', 'dataSchema', 'images', 'tooling']);
-  if (value.schema !== 2 || value.repository !== repository || !/^v\d+\.\d+\.\d+$/.test(value.tag ?? '')
+  if (value.schema !== 3 || value.repository !== repository || !/^v\d+\.\d+\.\d+$/.test(value.tag ?? '')
     || value.version !== value.tag.slice(1) || !/^[a-f0-9]{40}$/.test(value.sourceCommit ?? '')
     || !/^[a-f0-9]{40}$/.test(value.sourceDevCommit ?? '') || !hex.test(value.dataSchema ?? '')
     || Object.entries(expected).some(([key, wanted]) => value[key === 'revision' ? 'sourceCommit' : key] !== wanted)
     || !Array.isArray(value.images) || value.images.length !== 2
-    || !Array.isArray(value.tooling) || value.tooling.length !== tooling.length) throw new Error('Invalid offline Remote release receipt (schema 2 required)');
+    || !Array.isArray(value.tooling) || value.tooling.length !== tooling.length) throw new Error('Invalid offline Remote release receipt (schema 3 required)');
   for (const [index, arch] of architectures.entries()) {
     const image = value.images[index];
-    keys(image, ['platform', 'imageId', 'file', 'size', 'sha256']);
+    keys(image, ['platform', 'buildImageId', 'configDigest', 'manifestDigest', 'file', 'size', 'sha256']);
     descriptor(image, archiveName(value.tag, arch));
-    if (image.platform !== 'linux/' + arch || !/^sha256:[a-f0-9]{64}$/.test(image.imageId ?? '')) throw new Error('Invalid image platform or config ID');
+    if (image.platform !== 'linux/' + arch
+      || ['buildImageId', 'configDigest', 'manifestDigest'].some(key => !/^sha256:[a-f0-9]{64}$/.test(image[key] ?? ''))
+      || image.configDigest === image.manifestDigest
+      || ![image.configDigest, image.manifestDigest].includes(image.buildImageId)) throw new Error('Invalid archive-bound image identities/platform');
   }
   for (const [index, item] of tooling.entries()) {
     const asset = value.tooling[index];
@@ -59,6 +63,15 @@ export async function describeFile(path, file) {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(path)) hash.update(chunk);
   return { file, size: stat.size, sha256: hash.digest('hex') };
+}
+// CI only: reuse the server's standard-library parser, not another tar/OCI implementation.
+function archivedIdentities(path, arch, revision, tag) {
+  const result = spawnSync('python3', [fileURLToPath(new URL('./offline-release.py', import.meta.url)),
+    'archive', path, arch, revision, tag], { encoding: 'utf8', timeout: 300_000, maxBuffer: 1024 * 1024 });
+  if (result.error || result.status !== 0) throw new Error('Image archive binding failed: ' + (result.stderr || result.error?.message || result.status));
+  const binding = JSON.parse(result.stdout);
+  keys(binding, ['configDigest', 'manifestDigest']);
+  return binding;
 }
 export function checksumText(receipt, receiptHash) {
   return [...receipt.images, ...receipt.tooling, { file: 'remote-release.json', sha256: receiptHash }]
@@ -92,16 +105,18 @@ export async function createReleaseReceipt({ repository: repo, tag, revision, di
   const images = [];
   for (const arch of architectures) {
     const image = JSON.parse(readFileSync(join(directory, 'image-' + arch + '.json')));
-    keys(image, ['sourceCommit', 'tag', 'platform', 'imageId', 'file', 'size', 'sha256']);
+    keys(image, ['sourceCommit', 'tag', 'platform', 'buildImageId', 'configDigest', 'manifestDigest', 'file', 'size', 'sha256']);
     descriptor(image, archiveName(tag, arch));
     if (image.sourceCommit !== revision || image.tag !== tag) throw new Error('Image artifact source mismatch');
     const actual = await describeFile(join(directory, image.file), archiveName(tag, arch));
     if (image.file !== actual.file || image.size !== actual.size || image.sha256 !== actual.sha256) throw new Error('Image artifact integrity mismatch');
-    images.push({ platform: image.platform, imageId: image.imageId, ...actual });
+    const binding = archivedIdentities(join(directory, image.file), arch, revision, tag);
+    if (image.configDigest !== binding.configDigest || image.manifestDigest !== binding.manifestDigest) throw new Error('Image artifact identity mismatch');
+    images.push({ platform: image.platform, buildImageId: image.buildImageId, ...binding, ...actual });
   }
   const tools = [];
   for (const item of tooling) tools.push({ ...await describeFile(item.source, item.file), source: item.source });
-  return validateReleaseReceipt({ schema: 2, repository: repo, tag, version: config.version, sourceCommit: revision,
+  return validateReleaseReceipt({ schema: 3, repository: repo, tag, version: config.version, sourceCommit: revision,
     sourceDevCommit: provenance.sourceCommit, dataSchema: hash.digest('hex'), images, tooling: tools }, { repository: repo, tag, revision });
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -111,7 +126,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (!architectures.includes(arch) || !/^sha256:[a-f0-9]{64}$/.test(imageId ?? '')
       || !/^v\d+\.\d+\.\d+$/.test(inputs.tag ?? '') || !/^[a-f0-9]{40}$/.test(inputs.revision ?? '')) throw new Error('Invalid native image identity');
     const asset = await describeFile(join(path, archiveName(inputs.tag, arch)), archiveName(inputs.tag, arch));
-    writeFileSync(join(path, 'image-' + arch + '.json'), json({ sourceCommit: inputs.revision, tag: inputs.tag, platform: 'linux/' + arch, imageId, ...asset }), { flag: 'wx' });
+    const binding = archivedIdentities(join(path, asset.file), arch, inputs.revision, inputs.tag);
+    if (![binding.configDigest, binding.manifestDigest].includes(imageId)) throw new Error('Build daemon image ID is not bound by the saved archive');
+    writeFileSync(join(path, 'image-' + arch + '.json'), json({ sourceCommit: inputs.revision, tag: inputs.tag,
+      platform: 'linux/' + arch, buildImageId: imageId, ...binding, ...asset }), { flag: 'wx' });
   } else if (mode === 'create') {
     const receipt = await createReleaseReceipt(inputs);
     const bytes = json(receipt);
