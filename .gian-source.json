@@ -2,7 +2,7 @@
   "schema": 1,
   "product": "Gian Remote",
   "sourceRepository": "RichLogic/Gian-Dev",
-  "sourceCommit": "7081d271caf50012f03db96bc00f9bfe7e96b489",
+  "sourceCommit": "20165e0b73065bbfd9fcb4eedd0db12f987e59ad",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -50,7 +50,7 @@
     {
       "source": "delivery/remote/.github/workflows/deploy.yml",
       "path": ".github/workflows/deploy.yml",
-      "sha256": "3111a30091cb18e277868e1d1f6419f2927a2c88968b6e5028c9d2e90c9a159d"
+      "sha256": "3ac5d1a2601d76b28a29f95b55907c40c66424ff69060c5d5705cf64ae5c4617"
     },
     {
       "source": "delivery/remote/.github/workflows/public-english.yml",
@@ -60,7 +60,7 @@
     {
       "source": "delivery/remote/.github/workflows/release.yml",
       "path": ".github/workflows/release.yml",
-      "sha256": "d8922bde921ccef27593cf8583ac01c0811c3c366a55f9fa0f86d0c7644fca6e"
+      "sha256": "6ef7de287a127934cc6da3fceb8feb2967cb3dc0a71bd89c8e7a1fade86f9aba"
     },
     {
       "source": "delivery/remote/.gitignore",
@@ -70,7 +70,7 @@
     {
       "source": "delivery/remote/CHANGELOG.md",
       "path": "CHANGELOG.md",
-      "sha256": "62367329cf57ca1fa23e0bcbebbfea2602218c5e0a0618b00d8faa5c0921008d"
+      "sha256": "d16917cde26c8919665904aa4257ef2f45e87d18674d3c36d689f6f467bb2ff9"
     },
     {
       "source": "delivery/remote/Dockerfile",
@@ -80,22 +80,22 @@
     {
       "source": "delivery/remote/README.md",
       "path": "README.md",
-      "sha256": "295c9cc036fd1742fe5fe830a184464dc549a7945928ea36bf7eae14cab1bea0"
+      "sha256": "95e59f4257cffdf05830bfd5fdf79e70398d38b60e07896b45d9c9936735a79b"
     },
     {
       "source": "delivery/remote/compose.yaml",
       "path": "compose.yaml",
-      "sha256": "27f86377f0373833cd6367c861dc7b8ae17b3b0609c34ff4bb9724da8aa172d4"
+      "sha256": "d787f4d531e2c2285f395e44148883a04f093b85884507cd9e9f25ba15192928"
     },
     {
       "source": "delivery/remote/protocol-package.json",
       "path": "protocol-package.json",
-      "sha256": "87c6865015a9147c8c1d2274d986c64e61cef034bbdd092a62a23a4faab42f5f"
+      "sha256": "726f043c303159bfa6445641985e63fdfb9dd037b9470e804d828509cec4a978"
     },
     {
       "source": "delivery/remote/release.json",
       "path": "release.json",
-      "sha256": "b37dcb790edb2aa13180a1ab1361ec766050c213ac65f4a7b4308765f95abbb0"
+      "sha256": "86e1e5cea1af844c53aa21ae18a8140f26970a2b1b0a92e8a50b06fad8a0a3f7"
     },
     {
       "source": "delivery/remote/runtime.env.example",
@@ -110,17 +110,22 @@
     {
       "source": "delivery/remote/scripts/deploy-ssh.mjs",
       "path": "scripts/deploy-ssh.mjs",
-      "sha256": "ddbbedb2e61ad806a7eaeaebe09e982eb567f6dbcd3c899fd2341b42509e2a95"
+      "sha256": "16045631822c93993970832681487c21ef7585f6194c630a7187d0537027b423"
     },
     {
       "source": "delivery/remote/scripts/deploy.sh",
       "path": "scripts/deploy.sh",
-      "sha256": "14f243cf157cf0f954462f0c43511773eccd0fb64094812f6a7a59dd1728029e"
+      "sha256": "ba5233d53cabff597ba231d6ebf9cd8f8c3802b311054410b5859dd7224e9a7c"
+    },
+    {
+      "source": "delivery/remote/scripts/offline-release.py",
+      "path": "scripts/offline-release.py",
+      "sha256": "31c2375223123719a48619b90b1be2934de44930322a25bfc4e594a0596607ce"
     },
     {
       "source": "delivery/remote/scripts/prepare-existing.py",
       "path": "scripts/prepare-existing.py",
-      "sha256": "dae993f7d41e9b4e94fc7172e035137191801dc980b3be671735eb2208d8a859"
+      "sha256": "b2185f107309e906560e7b0462f8739bc465dd5f5bd71f1f35bac97e2977716b"
     },
     {
       "source": "delivery/remote/scripts/protocol-dependency.mjs",
@@ -130,7 +135,7 @@
     {
       "source": "delivery/remote/scripts/release-metadata.mjs",
       "path": "scripts/release-metadata.mjs",
-      "sha256": "2b81cb9291b85f5fb8c4affd486fbb69c273f287e52aefb40c1b1ecae0be241e"
+      "sha256": "cb4f9deadf95f46c0f018e0ec34bda3af36f68130e71b5387e5f186ab21648f6"
     },
     {
       "source": "delivery/remote/scripts/smoke-image.sh",
@@ -140,7 +145,7 @@
     {
       "source": "delivery/remote/scripts/ssh-entrypoint.sh",
       "path": "scripts/ssh-entrypoint.sh",
-      "sha256": "5226126abf49f58bdf886b193a8495030fd6edb995d7ad54eabfb3c6a15aadaf"
+      "sha256": "018a64d368b6d34179a8a433b1210b5c67f2debf80b28eb3a528834f217a402a"
     },
     {
       "source": "delivery/remote/scripts/verify-source.mjs",
@@ -150,7 +155,7 @@
     {
       "source": "delivery/remote/test/adoption.test.mjs",
       "path": "test/adoption.test.mjs",
-      "sha256": "42df735102c5e2f73670558ab0c2c05d4c1e8bc7e3ad077047ed81be34e7e331"
+      "sha256": "973f418669ba1457556042e93577901a14ba0cef20b57f4646ae26aef1b117d8"
     },
     {
       "source": "delivery/remote/test/protocol-dependency.test.mjs",
@@ -165,7 +170,7 @@
     {
       "source": "delivery/remote/test/release.test.mjs",
       "path": "test/release.test.mjs",
-      "sha256": "ba457cbb239f33185b3473479a8e3485dfcad432bb49b312c7cf6943a16c40a2"
+      "sha256": "02fc7dbe3b79ca75a3d4f4a7a4f13554310cb9dcd74632c13e999ad877c9283b"
     },
     {
       "source": "delivery/remote/test/runtime-bundle.test.mjs",
@@ -310,7 +315,7 @@
     {
       "source": "packages/chat-ui/src/transcript.tsx",
       "path": "packages/chat-ui/src/transcript.tsx",
-      "sha256": "36ad739640cf13cb4c0aaae073555539637964d27faecb15332c347cae74b76f"
+      "sha256": "ad582a1c20cbe01ed38b6cc3fbe2278133a19a34b0f7c8e22a9e38d19cb52d67"
     },
     {
       "source": "packages/chat-ui/src/translation.tsx",
@@ -405,7 +410,7 @@
     {
       "source": "packages/chat-ui/test/transcript.test.tsx",
       "path": "packages/chat-ui/test/transcript.test.tsx",
-      "sha256": "6bc2442fffdfe3fc2f922120f8314dfdf8f758d41b5f11cb96356524babb3e99"
+      "sha256": "decf0f3d3359500932b5434c20fa2e43f6d93a2602c0863c95827a2177dcc8a3"
     },
     {
       "source": "packages/chat-ui/test/user-markdown.test.tsx",
@@ -700,7 +705,7 @@
     {
       "source": "packages/remote-web/src/controller/apply-control.ts",
       "path": "packages/remote-web/src/controller/apply-control.ts",
-      "sha256": "00eaa7133e478afd0807460a0d9f0543d73f293a9d5dcd87aa45c65830c92873"
+      "sha256": "426d887885529b2a125459db1e6ff14703f378e38f64deb39cd1bf58bb2bc6f1"
     },
     {
       "source": "packages/remote-web/src/controller/attachment-upload.ts",
@@ -730,7 +735,7 @@
     {
       "source": "packages/remote-web/src/controller/fixture.ts",
       "path": "packages/remote-web/src/controller/fixture.ts",
-      "sha256": "a9ff89e6bce0bc85a80afacf2f84fe681ed9b4b866d60a5709e96e9f7b8c6e60"
+      "sha256": "dce3f72eb4c3563de616e936becde278df909e524bb260ee6e418048e8e61556"
     },
     {
       "source": "packages/remote-web/src/controller/pending-commands.ts",
@@ -740,7 +745,7 @@
     {
       "source": "packages/remote-web/src/controller/production.ts",
       "path": "packages/remote-web/src/controller/production.ts",
-      "sha256": "62c019529aae5709745fc83dbcfb55df755db499d3ade1dc8ca1409d571f2177"
+      "sha256": "03fcbda4ccb30b283369040df034b4c92693f30932e4e6c49d9b5fcef421a7df"
     },
     {
       "source": "packages/remote-web/src/controller/session-send.ts",
@@ -800,7 +805,7 @@
     {
       "source": "packages/remote-web/src/styles/remote-web.css",
       "path": "packages/remote-web/src/styles/remote-web.css",
-      "sha256": "d93d2c2af66adb67092424a6c67d7a2e163f43aff798b37a49d7ef2b53e84240"
+      "sha256": "60f7cc45a17963a2fe498f26fec9fd6719e2cab038bbe4808a9e66cda2867c72"
     },
     {
       "source": "packages/remote-web/src/styles/tokens.css",
@@ -860,7 +865,7 @@
     {
       "source": "packages/remote-web/src/ui/chat.tsx",
       "path": "packages/remote-web/src/ui/chat.tsx",
-      "sha256": "ff0bec8af4cb314f3ed28f3541abaf4c8b44522a318f5cf84086ffe2c6b1befc"
+      "sha256": "c8c2d99d4f68351be01e3799ea6b73897b72b38aca60f049168fb98633fb8f3c"
     },
     {
       "source": "packages/remote-web/src/ui/composer.tsx",
@@ -955,7 +960,7 @@
     {
       "source": "packages/remote-web/test/chat-composer.test.tsx",
       "path": "packages/remote-web/test/chat-composer.test.tsx",
-      "sha256": "3066be7f559b32efc6e7ea704754dbc8c5686af438d6275a903ff553ba0ca5e2"
+      "sha256": "60be4b77a94bf369f8eee1443ff48c2557ca0b4c5174bd29fbd9f10715dbd7a5"
     },
     {
       "source": "packages/remote-web/test/ciphertext-pacer.test.ts",
@@ -1060,7 +1065,7 @@
     {
       "source": "packages/remote-web/test/production-ops.test.ts",
       "path": "packages/remote-web/test/production-ops.test.ts",
-      "sha256": "7d51349ae5a786d65e1d29b23d6b5be71dc25b4e6421811c3b79046e3b51b6d5"
+      "sha256": "bb913cc5598f9ecf22bdc4daa1fe4a46397dfaeba1b8e6cfab5983c27d1e4577"
     },
     {
       "source": "packages/remote-web/test/proxy-logo.test.tsx",
@@ -1100,7 +1105,7 @@
     {
       "source": "packages/remote-web/test/transcript-events.test.ts",
       "path": "packages/remote-web/test/transcript-events.test.ts",
-      "sha256": "8a7c4fd8705831c6c7e77b73ab78ac692cb36780ba45f8441c66ae1ed7f870e7"
+      "sha256": "cb6065092aea266991f3bcaea1417e1c16a98c8b1406fd09f902af36be3eb434"
     },
     {
       "source": "packages/remote-web/test/translation-ui.test.tsx",
@@ -1365,7 +1370,7 @@
     {
       "source": "scripts/remote-deployment-system.test.mjs",
       "path": "test/deployment.test.mjs",
-      "sha256": "61130752457ab2d9e66ce97b4e235e54f24cd173abd45dabfc90abe6c6ea5ac0"
+      "sha256": "4f0e2f296cdb7567701faaa8f853c158aeb831829e1033a89b3f08346ec3e965"
     },
     {
       "source": "tsconfig.base.json",
@@ -1387,7 +1392,7 @@
     {
       "path": ".github/workflows/deploy.yml",
       "mode": 420,
-      "sha256": "3111a30091cb18e277868e1d1f6419f2927a2c88968b6e5028c9d2e90c9a159d"
+      "sha256": "3ac5d1a2601d76b28a29f95b55907c40c66424ff69060c5d5705cf64ae5c4617"
     },
     {
       "path": ".github/workflows/public-english.yml",
@@ -1397,7 +1402,7 @@
     {
       "path": ".github/workflows/release.yml",
       "mode": 420,
-      "sha256": "d8922bde921ccef27593cf8583ac01c0811c3c366a55f9fa0f86d0c7644fca6e"
+      "sha256": "6ef7de287a127934cc6da3fceb8feb2967cb3dc0a71bd89c8e7a1fade86f9aba"
     },
     {
       "path": ".gitignore",
@@ -1412,12 +1417,12 @@
     {
       "path": "CHANGELOG.md",
       "mode": 420,
-      "sha256": "62367329cf57ca1fa23e0bcbebbfea2602218c5e0a0618b00d8faa5c0921008d"
+      "sha256": "d16917cde26c8919665904aa4257ef2f45e87d18674d3c36d689f6f467bb2ff9"
     },
     {
       "path": "compose.yaml",
       "mode": 420,
-      "sha256": "27f86377f0373833cd6367c861dc7b8ae17b3b0609c34ff4bb9724da8aa172d4"
+      "sha256": "d787f4d531e2c2285f395e44148883a04f093b85884507cd9e9f25ba15192928"
     },
     {
       "path": "Dockerfile",
@@ -1432,7 +1437,7 @@
     {
       "path": "package.json",
       "mode": 420,
-      "sha256": "22adac787dd45d7d4f9f466f3f7b658d3b1be492e709a60e66707cbca2b4b603"
+      "sha256": "9839e2cc99c0fe741710cbd60004239275f9ff9f55189e0ca37e1f524e6f07b0"
     },
     {
       "path": "packages/chat-ui/package.json",
@@ -1572,7 +1577,7 @@
     {
       "path": "packages/chat-ui/src/transcript.tsx",
       "mode": 420,
-      "sha256": "36ad739640cf13cb4c0aaae073555539637964d27faecb15332c347cae74b76f"
+      "sha256": "ad582a1c20cbe01ed38b6cc3fbe2278133a19a34b0f7c8e22a9e38d19cb52d67"
     },
     {
       "path": "packages/chat-ui/src/translation.tsx",
@@ -1667,7 +1672,7 @@
     {
       "path": "packages/chat-ui/test/transcript.test.tsx",
       "mode": 420,
-      "sha256": "6bc2442fffdfe3fc2f922120f8314dfdf8f758d41b5f11cb96356524babb3e99"
+      "sha256": "decf0f3d3359500932b5434c20fa2e43f6d93a2602c0863c95827a2177dcc8a3"
     },
     {
       "path": "packages/chat-ui/test/user-markdown.test.tsx",
@@ -1962,7 +1967,7 @@
     {
       "path": "packages/remote-web/src/controller/apply-control.ts",
       "mode": 420,
-      "sha256": "00eaa7133e478afd0807460a0d9f0543d73f293a9d5dcd87aa45c65830c92873"
+      "sha256": "426d887885529b2a125459db1e6ff14703f378e38f64deb39cd1bf58bb2bc6f1"
     },
     {
       "path": "packages/remote-web/src/controller/attachment-upload.ts",
@@ -1992,7 +1997,7 @@
     {
       "path": "packages/remote-web/src/controller/fixture.ts",
       "mode": 420,
-      "sha256": "a9ff89e6bce0bc85a80afacf2f84fe681ed9b4b866d60a5709e96e9f7b8c6e60"
+      "sha256": "dce3f72eb4c3563de616e936becde278df909e524bb260ee6e418048e8e61556"
     },
     {
       "path": "packages/remote-web/src/controller/pending-commands.ts",
@@ -2002,7 +2007,7 @@
     {
       "path": "packages/remote-web/src/controller/production.ts",
       "mode": 420,
-      "sha256": "62c019529aae5709745fc83dbcfb55df755db499d3ade1dc8ca1409d571f2177"
+      "sha256": "03fcbda4ccb30b283369040df034b4c92693f30932e4e6c49d9b5fcef421a7df"
     },
     {
       "path": "packages/remote-web/src/controller/session-send.ts",
@@ -2062,7 +2067,7 @@
     {
       "path": "packages/remote-web/src/styles/remote-web.css",
       "mode": 420,
-      "sha256": "d93d2c2af66adb67092424a6c67d7a2e163f43aff798b37a49d7ef2b53e84240"
+      "sha256": "60f7cc45a17963a2fe498f26fec9fd6719e2cab038bbe4808a9e66cda2867c72"
     },
     {
       "path": "packages/remote-web/src/styles/tokens.css",
@@ -2122,7 +2127,7 @@
     {
       "path": "packages/remote-web/src/ui/chat.tsx",
       "mode": 420,
-      "sha256": "ff0bec8af4cb314f3ed28f3541abaf4c8b44522a318f5cf84086ffe2c6b1befc"
+      "sha256": "c8c2d99d4f68351be01e3799ea6b73897b72b38aca60f049168fb98633fb8f3c"
     },
     {
       "path": "packages/remote-web/src/ui/composer.tsx",
@@ -2217,7 +2222,7 @@
     {
       "path": "packages/remote-web/test/chat-composer.test.tsx",
       "mode": 420,
-      "sha256": "3066be7f559b32efc6e7ea704754dbc8c5686af438d6275a903ff553ba0ca5e2"
+      "sha256": "60be4b77a94bf369f8eee1443ff48c2557ca0b4c5174bd29fbd9f10715dbd7a5"
     },
     {
       "path": "packages/remote-web/test/ciphertext-pacer.test.ts",
@@ -2322,7 +2327,7 @@
     {
       "path": "packages/remote-web/test/production-ops.test.ts",
       "mode": 420,
-      "sha256": "7d51349ae5a786d65e1d29b23d6b5be71dc25b4e6421811c3b79046e3b51b6d5"
+      "sha256": "bb913cc5598f9ecf22bdc4daa1fe4a46397dfaeba1b8e6cfab5983c27d1e4577"
     },
     {
       "path": "packages/remote-web/test/proxy-logo.test.tsx",
@@ -2362,7 +2367,7 @@
     {
       "path": "packages/remote-web/test/transcript-events.test.ts",
       "mode": 420,
-      "sha256": "8a7c4fd8705831c6c7e77b73ab78ac692cb36780ba45f8441c66ae1ed7f870e7"
+      "sha256": "cb6065092aea266991f3bcaea1417e1c16a98c8b1406fd09f902af36be3eb434"
     },
     {
       "path": "packages/remote-web/test/translation-ui.test.tsx",
@@ -2612,12 +2617,12 @@
     {
       "path": "README.md",
       "mode": 420,
-      "sha256": "295c9cc036fd1742fe5fe830a184464dc549a7945928ea36bf7eae14cab1bea0"
+      "sha256": "95e59f4257cffdf05830bfd5fdf79e70398d38b60e07896b45d9c9936735a79b"
     },
     {
       "path": "release.json",
       "mode": 420,
-      "sha256": "b37dcb790edb2aa13180a1ab1361ec766050c213ac65f4a7b4308765f95abbb0"
+      "sha256": "86e1e5cea1af844c53aa21ae18a8140f26970a2b1b0a92e8a50b06fad8a0a3f7"
     },
     {
       "path": "runtime.env.example",
@@ -2642,12 +2647,12 @@
     {
       "path": "scripts/deploy-ssh.mjs",
       "mode": 420,
-      "sha256": "ddbbedb2e61ad806a7eaeaebe09e982eb567f6dbcd3c899fd2341b42509e2a95"
+      "sha256": "16045631822c93993970832681487c21ef7585f6194c630a7187d0537027b423"
     },
     {
       "path": "scripts/deploy.sh",
       "mode": 420,
-      "sha256": "14f243cf157cf0f954462f0c43511773eccd0fb64094812f6a7a59dd1728029e"
+      "sha256": "ba5233d53cabff597ba231d6ebf9cd8f8c3802b311054410b5859dd7224e9a7c"
     },
     {
       "path": "scripts/media-review.json",
@@ -2655,9 +2660,14 @@
       "sha256": "330bee66225202daa19c21b1d0edbe430e1b77f1e27d100eb1073e66bf74f0fe"
     },
     {
+      "path": "scripts/offline-release.py",
+      "mode": 420,
+      "sha256": "31c2375223123719a48619b90b1be2934de44930322a25bfc4e594a0596607ce"
+    },
+    {
       "path": "scripts/prepare-existing.py",
       "mode": 420,
-      "sha256": "dae993f7d41e9b4e94fc7172e035137191801dc980b3be671735eb2208d8a859"
+      "sha256": "b2185f107309e906560e7b0462f8739bc465dd5f5bd71f1f35bac97e2977716b"
     },
     {
       "path": "scripts/protocol-dependency.mjs",
@@ -2672,7 +2682,7 @@
     {
       "path": "scripts/release-metadata.mjs",
       "mode": 420,
-      "sha256": "2b81cb9291b85f5fb8c4affd486fbb69c273f287e52aefb40c1b1ecae0be241e"
+      "sha256": "cb4f9deadf95f46c0f018e0ec34bda3af36f68130e71b5387e5f186ab21648f6"
     },
     {
       "path": "scripts/smoke-image.sh",
@@ -2682,7 +2692,7 @@
     {
       "path": "scripts/ssh-entrypoint.sh",
       "mode": 420,
-      "sha256": "5226126abf49f58bdf886b193a8495030fd6edb995d7ad54eabfb3c6a15aadaf"
+      "sha256": "018a64d368b6d34179a8a433b1210b5c67f2debf80b28eb3a528834f217a402a"
     },
     {
       "path": "scripts/verify-source.mjs",
@@ -2692,12 +2702,12 @@
     {
       "path": "test/adoption.test.mjs",
       "mode": 420,
-      "sha256": "42df735102c5e2f73670558ab0c2c05d4c1e8bc7e3ad077047ed81be34e7e331"
+      "sha256": "973f418669ba1457556042e93577901a14ba0cef20b57f4646ae26aef1b117d8"
     },
     {
       "path": "test/deployment.test.mjs",
       "mode": 420,
-      "sha256": "61130752457ab2d9e66ce97b4e235e54f24cd173abd45dabfc90abe6c6ea5ac0"
+      "sha256": "4f0e2f296cdb7567701faaa8f853c158aeb831829e1033a89b3f08346ec3e965"
     },
     {
       "path": "test/protocol-dependency.test.mjs",
@@ -2712,7 +2722,7 @@
     {
       "path": "test/release.test.mjs",
       "mode": 420,
-      "sha256": "ba457cbb239f33185b3473479a8e3485dfcad432bb49b312c7cf6943a16c40a2"
+      "sha256": "02fc7dbe3b79ca75a3d4f4a7a4f13554310cb9dcd74632c13e999ad877c9283b"
     },
     {
       "path": "test/runtime-bundle.test.mjs",

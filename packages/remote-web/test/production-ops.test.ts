@@ -635,6 +635,7 @@ describe('production controller operations', () => {
       },
     });
     const sessionId = generateCanonicalId();
+    const activeTurnId = generateCanonicalId();
     try {
       controller.actions.challengeLogin(hostId);
       await viWait(async () => controller.state.connection.kind === 'online');
@@ -646,7 +647,7 @@ describe('production controller operations', () => {
         data: {
           ...sampleSnapshot(hostId, 'Office Mac'),
           event_sequence: 5,
-          sessions: [remoteSession(sessionId)],
+          sessions: [{ ...remoteSession(sessionId), active_turn: { id: activeTurnId, turn_number: 1 } }],
         },
       });
       controller.actions.selectSession(sessionId);
@@ -659,10 +660,13 @@ describe('production controller operations', () => {
         data: { session_id: sessionId, has_more: false, items: [] },
       });
       await viWait(async () => controller.state.transcripts[sessionId]?.hydrated === true);
+      expect(controller.state.transcripts[sessionId]?.streaming).toBe(true);
 
       relays[0]!.close('socket_closed');
+      expect(controller.state.transcripts[sessionId]?.streaming).toBe(false);
       await viWait(async () => relays.length >= 2 && relays[1]!.isOpen, 2_000);
       await viWait(async () => relays[1]!.sent.some(message => message.type === 'resume.request'));
+      expect(controller.state.transcripts[sessionId]?.streaming).toBe(false);
       await relays[1]!.emit({
         type: 'resume.ok',
         host_generation: generateCanonicalId(),
@@ -671,6 +675,7 @@ describe('production controller operations', () => {
         revision: 'rev-1',
         transcript_included: true,
       });
+      expect(controller.state.transcripts[sessionId]?.streaming).toBe(false);
       await relays[1]!.emit({
         type: 'transcript.page',
         session_id: sessionId,
@@ -686,6 +691,7 @@ describe('production controller operations', () => {
       });
       await viWait(async () => (controller.state.transcripts[sessionId]?.items.length ?? 0) === 1);
       expect(controller.state.transcripts[sessionId]?.hydrated).toBe(true);
+      expect(controller.state.transcripts[sessionId]?.streaming).toBe(true);
       expect(relays[1]!.sent.some(message => message.method === 'session.page')).toBe(false);
     } finally {
       controller.close();

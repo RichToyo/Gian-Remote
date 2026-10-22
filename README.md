@@ -94,115 +94,167 @@ Rename. Names are metadata; renaming preserves Host identity and pairings.
 
 ## Stable release
 
-`release.json` owns the Remote product version. Its version is independent of
-the Desktop version and the communication protocol. Update it in GianDev,
-export a committed revision, review/sync that output to this repository and
-create an immutable `vX.Y.Z` tag on main.
+The Remote version in release.json is independent of Desktop and Protocol.
+Export a committed GianDev revision, review/sync the standalone source and
+create an immutable stable vX.Y.Z tag on main. Run **Release Remote** on main
+with that exact tag. Qualification, native amd64/arm64 builds and actual-image
+smoke checks remain in CI. Each native image is built once, smoke-tested by its
+Docker image ID, then saved from that same ID as a gzip-compressed Docker
+archive. No server build, dependency download or registry pull is involved.
+This uses Docker's documented [save](https://docs.docker.com/reference/cli/docker/image/save/)
+and compressed [load](https://docs.docker.com/reference/cli/docker/image/load/) format.
 
-Run **Release Remote** on main with that tag. It checks the exact tag commit,
-builds and tests native linux/amd64 and linux/arm64 images, pushes those tested
-images, creates their multi-platform manifest, and publishes a stable GitHub
-Release with `remote-release.json` and `SHA256SUMS`. That receipt binds source,
-image digest and the database migration fingerprint. A published tag cannot
-be rebuilt through this release entrypoint. Deployment retries consume the
-published receipt and never rebuild an image.
+The stable Release publishes:
 
-The runtime bundle copies the frozen install's actual production dependency
-graph and native build outputs. It does not resolve semver ranges again or
-depend on package metadata in a developer's pnpm cache.
+- gian-remote-vX.Y.Z-linux-amd64.tar.gz and the corresponding arm64 archive.
+- remote-release.json (schema 2), binding both platforms, Docker image/config
+  IDs, archive names/sizes/SHA-256, source commits and migration fingerprint.
+- SHA256SUMS, compose.yaml, deploy.sh and offline-release.py. Deployment
+  tooling hashes are in the receipt and must also match the tagged Git blobs.
 
-Release Remote directly calls Deploy Remote after publication. A release
-created with GITHUB_TOKEN does not normally trigger another event workflow;
-this direct call avoids a missing deployment. Deploy Remote also handles
-human-published stable releases and manual retries. Drafts and prereleases
-are not deployed; only the latest published stable release is eligible.
-See [GitHub workflow trigger behavior](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+An image/config ID is not a registry manifest digest. This delivery path uses
+the saved image's local ID, never a registry reference. A published release
+cannot be rebuilt or have assets replaced through this entrypoint. Existing
+schema-1 registry releases/assets stay immutable; the offline CLI rejects them.
+Do not add fabricated offline metadata to an old release. Publish a new
+qualified version when adopting this delivery format.
 
-## One-time cloud host setup
+Release publication does **not** deploy anything. The old Deploy Remote
+workflow is manual-only and deliberately fails with local deployment guidance;
+it has no release trigger, reusable workflow, SSH secret or remote operation.
+The old restricted-key/registry entrypoint also refuses execution. Do not
+upload a personal SSH private key to GitHub. Existing deployment credentials
+or server-installed legacy entrypoints are not automatically changed here.
 
-Use a dedicated Linux host/account with Docker Engine, Docker Compose v2,
-`flock`, tar and SSH. The account must be allowed to run Docker. No inbound
-Agent or workspace access is required. The server must be able to pull the
-image from GHCR. In upload mode, either make the image package public or
-configure a read-only registry login on the machine. Restricted mode uses the
-current workflow's short-lived packages:read token on stdin and removes its
-temporary Docker authentication directory when deployment finishes.
+The runtime bundle still copies the frozen install's actual production
+dependency graph and native outputs; it never resolves semver ranges again.
 
-Choose a dedicated directory, for example `/opt/gian-remote`. It must be
-writable by the deployment account. Install `runtime.env` there with mode
-0600, using `runtime.env.example` as the field reference. Set a random admin
-token and the real HTTPS origin; do not put those secrets in Git or Actions
-logs. The data volume preserves pairing records and the server identity.
+## Download locally
 
-For an existing Compose-managed Remote, prefer preserving its project and data
-volume. An administrator can prepare a separate deployment directory with
-`scripts/prepare-existing.py --container <name> --directory <new-path> --tooling <staging-directory>`.
-The staging directory must contain compose.yaml, deploy.sh and ssh-entrypoint.sh.
-The helper refuses an existing destination, reads the healthy container and
-original Compose configuration, and records its exact image and migration set
-for rollback. Runtime secrets stay on the server in mode-0600 files. It neither
-restarts the container nor copies/modifies its data volume. Nonstandard ports,
-bind-mounted data or unavailable original configuration require explicit review.
+The operator machine needs Node 24, gh and OpenSSH, but **not Docker**.
+Use a current source checkout containing this CLI. The following version is
+an example, not a claim that the release exists. Select the actual latest
+published stable tag and the **server's** architecture, not the Mac's.
 
-In restricted mode, install a new deployment-only public key in authorized_keys
-with `restrict` and a fixed forced command, for example:
-
-```text
-restrict,command="/bin/bash /srv/gian-remote-ci/tooling/ssh-entrypoint.sh /srv/gian-remote-ci current current_remote-data" ssh-ed25519 <deployment-public-key> gian-remote-ci
+```sh
+node scripts/deploy-ssh.mjs download \
+  --tag v1.4.1 --arch amd64 --directory ./remote-v1.4.1-amd64
 ```
 
-Use the actual project and volume from adoption.json. The key permits only
-`health` and a validated `deploy <commit> <owned-image-digest> <migration-hash>`
-operation. It cannot request a shell, upload scripts, or forward ports. The
-administrator maintains the root-owned deployment tooling; CI only supplies
-release identities. Never upload a personal SSH private key to GitHub.
+Download verifies the stable public release, resolves lightweight/annotated
+tags to their exact main-line commit, and validates the receipt, allowlisted
+file names, platform, sizes and hashes. Every release asset must expose a
+supported sha256 digest through GitHub's Release API; missing/unsupported
+digests fail closed. This independently binds a cached receipt and archive
+to the published bytes, not just to local checksums. Tooling is additionally
+bound to the exact tagged source blobs.
+The digest field is documented in the [release asset API](https://docs.github.com/en/rest/releases/assets).
 
-Remote binds only `127.0.0.1:8787` on the host by default. Configure your HTTPS
-reverse proxy to forward HTTP and WebSocket upgrades there; set appropriate
-WebSocket timeouts. `GIAN_REMOTE_TRUSTED_PROXY=1` is appropriate only if that
-proxy overwrites forwarding headers and untrusted clients cannot bypass it.
-The workflow does not change DNS, certificates, firewalls or an existing proxy.
+Files download into a private temporary directory and become the selected
+local directory only after verification. No tarball is extracted. A complete
+existing directory is reverified without downloading again. Partial/dirty
+directories are rejected rather than merged or overwritten; choose a new
+directory or explicitly remove the failed local copy after inspection.
 
-In GitHub configure environment **remote-production**:
+## Upload, Then Explicitly Apply
 
-| Kind | Name | Value |
-|---|---|---|
-| Variable | REMOTE_SSH_HOST | Cloud host DNS name or IPv4 address |
-| Variable | REMOTE_SSH_USER | Dedicated deployment user |
-| Variable | REMOTE_SSH_PORT | SSH port; default 22 |
-| Variable | REMOTE_DEPLOY_DIR | Dedicated absolute directory |
-| Variable | REMOTE_SSH_MODE | `restricted` for a forced-command key; `upload` for the original installer flow |
-| Secret | REMOTE_SSH_PRIVATE_KEY | Deployment SSH private key |
-| Secret | REMOTE_SSH_KNOWN_HOSTS | Independently verified OpenSSH known_hosts entry (include port syntax for non-22) |
+Configure the server once as described below. Choose the real deployment
+directory, existing Compose project and named data volume explicitly. Do not
+infer them from these examples.
 
-Set repository variable **REMOTE_DEPLOY_ENABLED=true** only after the host and
-these settings are ready. Without it deployment is disabled, while source
-checks and releases remain usable. Environment reviewer rules, if configured,
-will deliberately pause each deployment; omit required reviewers if automatic
-deployment after an authorized stable release is desired.
+```sh
+node scripts/deploy-ssh.mjs upload \
+  --directory ./remote-v1.4.1-amd64 --arch amd64 --host remote-prod \
+  --deploy-dir /srv/gian-remote --project current --volume current_remote-data
+```
 
-## Deployment and failure handling
+This revalidates the local/published bindings, uploads into a new private
+incoming directory, checks **every** uploaded file with server-side
+sha256sum before executing uploaded code, then runs full receipt/inventory
+and Docker platform validation. The default only stages the immutable release:
+no docker load, service stop, backup, database migration or switch occurs.
 
-The runner verifies the published receipt/tag and uses pinned SSH host keys.
-SSH sends a keepalive every 15 seconds and allows up to 60 minutes per transfer
-or deployment for slow registry links (65-minute job budget). Transport tooling
-comes from main so connection fixes can retry existing immutable releases.
-Upload mode copies the versioned compose/deployment scripts; restricted mode
-invokes the administrator-installed entrypoint. It then asks the host to pull
-the exact `ghcr.io/richtoyo/gian-remote@sha256:...` image recorded for that release. Images already published under `ghcr.io/richlogic/gian-remote` stay there; this repository does not retag or redirect them. It uses a deployment
-lock, stops the previous service, backs up the stopped data volume, and starts
-the candidate. A short interruption is expected; existing clients reconnect.
-The host's healthcheck validates the running source revision; release CI also
-checks the served Web page. The `current` symlink advances only after health.
+SSH uses the operator's existing config/agent/identity and known_hosts with
+StrictHostKeyChecking=yes, batch mode and 15-second keepalives. An SSH alias's
+configured User/Port is retained unless explicitly overridden. Optional
+--user, --port, --identity-file and --known-hosts select existing local settings;
+no keys/tokens are created, copied to GitHub or uploaded to the server.
+--http-port overrides the default loopback HTTP port 8787 only after the
+existing deployment's port has been reviewed.
 
-If health fails with an unchanged migration set, the script restarts the
-previous image and still returns failure to CI. If migrations changed, or on
-the first deployment, it stops the failed service and requests manual recovery.
-It never automatically restores a database backup, overwrites the identity,
-deletes volumes or removes old release images. Backups live in the deployment
-directory and require an operator retention policy and restricted access.
-Confirm public HTTPS and real device reconnection after the first deployment;
-local/container health alone cannot prove the cloud network route.
+To load and switch the already verified release, repeat the upload with the
+separate, explicit --apply choice:
+
+```sh
+node scripts/deploy-ssh.mjs upload \
+  --directory ./remote-v1.4.1-amd64 --arch amd64 --host remote-prod \
+  --deploy-dir /srv/gian-remote --project current --volume current_remote-data \
+  --apply
+```
+
+This retries from the same local directory without rebuilding/redownloading.
+Exact same-release uploads are idempotent; different bytes, extra files,
+partial content or changed already-applied settings fail closed. Failed
+uploads remain in incoming.* for explicit operator inspection/cleanup; they
+are never promoted on a failed transfer. Normal upload/apply only accepts
+the latest stable release, not a silent downgrade.
+
+## One-Time Server Setup
+
+Use a dedicated Linux deployment directory/account with Docker Engine,
+Compose v2, Bash, Python3, GNU sha256sum, flock, tar and SSH already installed.
+The account must be allowed to run Docker. The server does not need Node,
+pnpm, GitHub access, registry credentials or an outbound registry connection.
+No package/tool installation is performed by the deployment CLI.
+
+Install runtime.env in that directory with mode 0600, following
+runtime.env.example. Keep real credentials, HTTPS origin and the persistent
+pairing/server identity on the server. No runtime secrets belong in Git,
+release assets, the operator's archive directory or Actions logs.
+
+For an existing Compose-managed Remote, preserve its actual project and named
+data volume. The administrator-only prepare-existing.py helper can prepare a
+new deployment directory without restarting/copying/modifying the data.
+Its --tooling directory must contain the new version's compose.yaml,
+deploy.sh and offline-release.py. The helper records the cached image ID,
+existing Compose configuration, source revision and migration fingerprint
+for rollback. It also disables registry pulls in that saved configuration.
+Review nonstandard mounts/ports separately. Do not adopt an already populated
+deployment root or select a new empty volume to bypass an adoption failure.
+
+The local CLI requires that dedicated directory to exist; it does not adopt
+or create a cloud deployment implicitly. A first deployment refuses an
+existing service/project or data volume without a managed current release.
+No GitHub environment/SSH secrets or REMOTE_DEPLOY_ENABLED variable are used.
+
+Remote binds 127.0.0.1:8787 by default. Keep the existing HTTPS reverse proxy,
+HTTP/WebSocket forwarding, DNS, firewall and certificates. Deployment does not
+modify them. Confirm public HTTPS and real paired-device reconnection
+separately; container health is not cloud/client acceptance.
+
+## Apply Preflight and Recovery
+
+All uploaded bytes, receipt/source identity and target platform are checked
+under a deployment lock. Before stopping the service, apply verifies the
+actual current Compose project, named volume, port, running source/image and
+**cached immutable rollback image**. A cache miss fails without pulling or
+stopping. It loads the candidate archive, checks its exact image ID, native
+platform, source/version labels and migration fingerprint, still before stop.
+
+Only then does it stop the old service, back up the stopped volume (SQLite,
+WAL and server identity together), and start the candidate. Backup and every
+candidate/rollback launch use pull=never; Compose also uses no-build/no-deps.
+Running image identity and /health source revision must match before current
+is atomically advanced. A short interruption during an explicit apply is
+expected; clients reconnect.
+
+Failure with the same migration fingerprint attempts the cached previous
+image and still returns failure. If migrations changed, or this is the first
+deployment, the failed service stays stopped and requires manual recovery.
+There is no automatic old-code start on a changed schema, database restore,
+volume deletion, identity replacement, image prune or registry fallback.
+Preserve the failed candidate, old images and restricted stopped-data backups;
+retention/cleanup is an explicit operator policy.
 
 ## Protocol rollout
 

@@ -31,7 +31,7 @@ jobs:
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           SHA=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")
           git merge-base --is-ancestor "$SHA" origin/main
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then echo 'Release exists; use Deploy Remote to retry without rebuilding'; exit 1; fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then echo 'Release exists; retry local download/upload without rebuilding or replacing assets'; exit 1; fi
           git checkout --detach "$SHA"
           node scripts/verify-source.mjs
           test "v$(node -p "require('./release.json').version")" = "$RELEASE_TAG"
@@ -51,9 +51,6 @@ jobs:
       - run: pnpm test
   images:
     needs: qualify
-    permissions:
-      contents: read
-      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -71,77 +68,64 @@ jobs:
         with:
           ref: ${{ needs.qualify.outputs.sha }}
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build candidate once
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{ matrix.platform }}
           load: true
-          tags: ghcr.io/richtoyo/gian-remote:build-${{ needs.qualify.outputs.sha }}-${{ matrix.arch }}
+          tags: gian-remote:build-${{ needs.qualify.outputs.sha }}-${{ matrix.arch }}
           build-args: |
             GIAN_REMOTE_BUILD_ID=${{ needs.qualify.outputs.sha }}
             GIAN_REMOTE_VERSION=${{ inputs.tag }}
-      - name: Test actual candidate and publish identical image
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Test actual candidate and save the identical image offline
         env:
-          IMAGE: ghcr.io/richtoyo/gian-remote:build-${{ needs.qualify.outputs.sha }}-${{ matrix.arch }}
-          REVISION: ${{ needs.qualify.outputs.sha }}
+          IMAGE: gian-remote:build-${{ needs.qualify.outputs.sha }}-${{ matrix.arch }}
+          RELEASE_SHA: ${{ needs.qualify.outputs.sha }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          ARCH: ${{ matrix.arch }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
-          bash scripts/smoke-image.sh "$IMAGE" "$REVISION"
-          docker push "$IMAGE"
-          mkdir digests
-          docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE" > digests/${{ matrix.arch }}.txt
+          set -euo pipefail
+          IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$IMAGE")
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_ID")" = "$PLATFORM"
+          bash scripts/smoke-image.sh "$IMAGE_ID" "$RELEASE_SHA"
+          mkdir artifacts
+          # Saving the tested config ID is not a registry-manifest export.
+          docker save "$IMAGE_ID" | gzip -n > "artifacts/gian-remote-$RELEASE_TAG-linux-$ARCH.tar.gz"
+          node scripts/release-metadata.mjs image artifacts "$ARCH" "$IMAGE_ID"
       - uses: actions/upload-artifact@v4
         with:
-          name: image-digest-${{ matrix.arch }}
-          path: digests/
+          name: offline-image-${{ matrix.arch }}
+          path: artifacts/
+          compression-level: 0
+          if-no-files-found: error
   publish:
     needs: [qualify, images]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      packages: write
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.qualify.outputs.sha }}
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/download-artifact@v4
         with:
-          pattern: image-digest-*
+          pattern: offline-image-*
           merge-multiple: true
-          path: digests
+          path: artifacts
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - name: Publish stable manifest and receipt
+      - name: Publish immutable offline images, pinned tooling and receipt
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_SHA: ${{ needs.qualify.outputs.sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           node scripts/check-public-english.mjs --ref "$RELEASE_SHA"
-          IMAGE="ghcr.io/richtoyo/gian-remote:$RELEASE_TAG"
-          docker buildx imagetools create -t "$IMAGE" "$(cat digests/amd64.txt)" "$(cat digests/arm64.txt)"
-          export IMAGE_DIGEST=$(docker buildx imagetools inspect "$IMAGE" --format '{{json .Manifest}}' | jq -r .digest)
           node scripts/release-metadata.mjs create remote-release.json
-          sha256sum remote-release.json > SHA256SUMS
-          gh release create "$RELEASE_TAG" remote-release.json SHA256SUMS --verify-tag --title "Gian Remote $RELEASE_TAG" --notes "Remote Server and Web. Deployment uses the immutable image digest in remote-release.json."
-  deploy:
-    needs: publish
-    permissions:
-      contents: read
-      packages: read
-    uses: ./.github/workflows/deploy.yml
-    with:
-      tag: ${{ inputs.tag }}
-    secrets: inherit
+          gh release create "$RELEASE_TAG" remote-release.json SHA256SUMS artifacts/*.tar.gz compose.yaml scripts/deploy.sh scripts/offline-release.py --verify-tag --title "Gian Remote $RELEASE_TAG" --notes "Remote Server and Web. Download and upload the verified offline image from your own machine; publication never deploys a server."

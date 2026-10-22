@@ -64,6 +64,7 @@ def prepare(container, directory, tooling):
         compose_command += ["-f", path]
     old_compose = json.loads(output(compose_command + ["config", "--format", "json"]))
     old_compose["services"]["remote"]["image"] = info["Image"]
+    old_compose["services"]["remote"]["pull_policy"] = "never"
     old_compose["services"]["remote"].pop("build", None)
     entry = next((arg for arg in info["Config"].get("Cmd", []) if arg.endswith("/cli.js")), None)
     if not entry:
@@ -79,7 +80,7 @@ def prepare(container, directory, tooling):
             path.write_text(text)
             path.chmod(0o600)
         (staging / "tooling").mkdir(mode=0o700)
-        for name in ["compose.yaml", "deploy.sh", "ssh-entrypoint.sh"]:
+        for name in ["compose.yaml", "deploy.sh", "offline-release.py"]:
             shutil.copyfile(Path(tooling) / name, staging / "tooling" / name)
             (staging / "tooling" / name).chmod(0o600)
         write(staging / "runtime.env", runtime)

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { generateCanonicalId } from '@gian/remote-protocol';
 import { renderApp } from './render-app.js';
 import { sampleCapabilities, sampleSessions, sampleTasks, sampleTranscript } from '../src/controller/fixture.js';
+import { sampleInteraction } from '../src/scenarios.js';
 
 describe('chat + composer (B5)', () => {
   it('renders the transcript through @gian/chat-ui (msg/trow classes)', () => {
@@ -155,6 +156,7 @@ describe('chat + composer (B5)', () => {
     const user = userEvent.setup();
     const { controller } = renderApp({ scenario: {}, viewport: 'wide' });
     const before = controller.state.sessions.find((s) => s.id === 's-1')!.queue.entries.length;
+    const activeTurn = controller.state.sessions.find((s) => s.id === 's-1')!.active_turn;
     const input = screen.getByRole('textbox');
     await user.type(input, 'add a timeout guard in the hook');
     const send = screen.getByRole('button', { name: /^Send \(queued while the turn is running\)$/ });
@@ -164,6 +166,8 @@ describe('chat + composer (B5)', () => {
     const after = controller.state.sessions.find((s) => s.id === 's-1')!.queue.entries;
     expect(after.length).toBe(before + 1);
     expect(after[after.length - 1]!.text).toBe('add a timeout guard in the hook');
+    expect(controller.state.sessions.find((s) => s.id === 's-1')!.active_turn).toEqual(activeTurn);
+    expect(screen.getAllByText('Working…')).toHaveLength(1);
     // draft cleared on acceptance
     expect(controller.state.drafts['s-1']?.text ?? '').toBe('');
   });
@@ -172,13 +176,58 @@ describe('chat + composer (B5)', () => {
     const user = userEvent.setup();
     const { controller } = renderApp({ scenario: {}, viewport: 'wide' });
     controller.actions.selectSession('s-2'); // visible Doing session, no active turn
+    expect(screen.queryByText('Working…')).toBeNull();
     await user.type(screen.getByRole('textbox'), 'draft a checklist for me');
     await user.click(screen.getByRole('button', { name: 'Send' }));
+    // A locally pending send is not proof that the model has started.
+    expect(screen.queryByText('Working…')).toBeNull();
     controller.test.resolveAll();
     const session = controller.state.sessions.find((s) => s.id === 's-2')!;
     expect(session.status).toBe('running');
     expect(session.active_turn).toBeTruthy();
     expect(session.queue.entries).toHaveLength(0);
+    expect(screen.getByText('Working…')).toBeInTheDocument();
+    expect(document.querySelector('[data-testid="turn-work"]')).toBeNull();
+    await user.click(screen.getByRole('button', { name: /Stop/ }));
+    controller.test.resolveAll();
+    expect(screen.queryByText('Working…')).toBeNull();
+  });
+
+  it.each(['error', 'unknown'] as const)('an idle send with %s outcome never invents active work', async outcome => {
+    const user = userEvent.setup();
+    const { controller } = renderApp({ scenario: {}, viewport: 'wide' });
+    controller.actions.selectSession('s-2');
+    controller.test.scriptSend(outcome);
+    await user.type(screen.getByRole('textbox'), 'not yet confirmed');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    controller.test.resolveAll();
+    expect(controller.state.sessions.find(session => session.id === 's-2')?.active_turn).toBeUndefined();
+    expect(screen.queryByText('Working…')).toBeNull();
+  });
+
+  it('pending/responding approval hides Working; a resolved trailing approval does not hide active work', async () => {
+    const user = userEvent.setup();
+    const interaction = sampleInteraction({ session_id: 's-1' });
+    const { controller } = renderApp({ scenario: { hostData: { 'host-home': {
+      capabilities: sampleCapabilities(), tasks: sampleTasks(), sessions: sampleSessions(),
+      transcripts: { 's-1': [] }, transcriptsStreaming: { 's-1': true }, interactions: [interaction],
+    } } } });
+    expect(screen.queryByText('Working…')).toBeNull();
+    await user.click(screen.getByRole('button', { name: interaction.presentation.actions[0]!.label }));
+    expect(screen.queryByText('Working…')).toBeNull();
+    controller.test.resolveAll();
+    expect(screen.getByText('Working…')).toBeInTheDocument();
+  });
+
+  it.each([
+    { kind: 'browser_offline' as const },
+    { kind: 'host_offline' as const, lastSeenAt: 0 },
+    { kind: 'relay_reconnecting' as const, attempt: 1 },
+    { kind: 'resyncing' as const, synced: 0, total: 1 },
+  ])('$kind never displays Working from a cached running transcript', connection => {
+    renderApp({ scenario: { connection } });
+    expect(screen.queryByText('Working…')).toBeNull();
+    expect(document.querySelector('[data-state="working"]')).toBeNull();
   });
 
   it('Stop ends the active turn on canonical success', async () => {

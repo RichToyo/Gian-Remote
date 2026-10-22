@@ -19,6 +19,55 @@ import type {
 import type { Executor } from '@gian/shared';
 import type { RemoteHostEntry, RemoteUiState, TranscriptState } from './types.js';
 
+function isActiveTurnTerminal(session: RemoteSession | undefined, item: TranscriptItem): boolean {
+  const active = session?.active_turn;
+  // Host transcript ids may be remoteStableUuid projections of raw turn ids.
+  // The per-Session turn number is preserved on both DTOs.
+  return active !== undefined && (item.kind === 'turn-end' || item.kind === 'error')
+    && item.turn === active.turn_number;
+}
+
+/** Only Host-confirmed active work is live. Transcript delivery alone (for
+ * example a user echo or late history row) cannot start another turn. */
+export function sessionIsWorking(
+  state: RemoteUiState,
+  session: RemoteSession | undefined,
+  items: TranscriptItem[],
+): boolean {
+  const active = session?.active_turn;
+  return state.connection.kind === 'online'
+    && session?.status === 'running'
+    && active !== undefined
+    && !items.some(item => isActiveTurnTerminal(session, item))
+    && !items.some(item => item.kind === 'approval' && item.status === 'pending'
+      && item.turn === active.turn_number)
+    && !state.interactions.some(interaction => {
+      const phase = state.interactionPhases[interaction.id] ?? 'pending';
+      return interaction.session_id === session.id && (phase === 'pending' || phase === 'responding');
+    });
+}
+
+function syncTranscriptActivity(state: RemoteUiState, sessionIds?: Set<string>): RemoteUiState {
+  const viewedId = state.view.kind === 'chat' ? state.view.sessionId : undefined;
+  const transcripts = viewedId && !state.transcripts[viewedId]
+    && (!sessionIds || sessionIds.has(viewedId))
+    && state.sessions.some(session => session.id === viewedId)
+    ? beginTranscriptLoad(state, viewedId, 'initial').transcripts
+    : state.transcripts;
+  return {
+    ...state,
+    transcripts: Object.fromEntries(Object.entries(transcripts).map(([sessionId, transcript]) => [
+      sessionId,
+      sessionIds && !sessionIds.has(sessionId) ? transcript : {
+        ...transcript,
+        streaming: !transcript.historyError && sessionIsWorking(
+          state, state.sessions.find(session => session.id === sessionId), transcript.items,
+        ),
+      },
+    ])),
+  };
+}
+
 export function applySnapshotToState(
   state: RemoteUiState,
   snapshot: RemoteStateSnapshot,
@@ -28,7 +77,7 @@ export function applySnapshotToState(
   const currentView = state.view;
   const keepChat = currentView.kind === 'chat'
     && snapshot.sessions.some((session) => session.id === currentView.sessionId);
-  return {
+  return syncTranscriptActivity({
     ...state,
     auth: { kind: 'authenticated' },
     connection: { kind: 'online' },
@@ -61,33 +110,25 @@ export function applySnapshotToState(
       : first
         ? { kind: 'chat', sessionId: first.id }
         : { kind: 'empty' },
-  };
+  });
 }
 
 export function applyCanonicalEvent(state: RemoteUiState, message: CanonicalEvent): RemoteUiState {
   const event = message.event;
   if (event.kind === 'session.updated') {
-    const transcript = state.transcripts[event.session.id];
-    return {
+    return syncTranscriptActivity({
       ...state,
       sessions: upsertById(state.sessions, event.session),
-      ...(transcript ? {
-        transcripts: {
-          ...state.transcripts,
-          [event.session.id]: {
-            ...transcript,
-            streaming: state.connection.kind === 'online' && event.session.status === 'running',
-          },
-        },
-      } : {}),
-    };
+    }, new Set([event.session.id]));
   }
   if (event.kind === 'interaction.updated') {
-    return { ...state, interactions: upsertById(state.interactions, event.interaction) };
+    return syncTranscriptActivity({
+      ...state, interactions: upsertById(state.interactions, event.interaction),
+    }, new Set([event.interaction.session_id]));
   }
   if (event.kind === 'transcript.item') {
     const session = state.sessions.find((entry) => entry.id === event.session_id);
-    return {
+    return syncTranscriptActivity({
       ...state,
       transcripts: {
         ...state.transcripts,
@@ -97,7 +138,7 @@ export function applyCanonicalEvent(state: RemoteUiState, message: CanonicalEven
           executorForSession(session),
         ),
       },
-    };
+    }, new Set([event.session_id]));
   }
   return state;
 }
@@ -175,7 +216,12 @@ export function mergeRemotePatch(state: RemoteUiState, patch: RemoteStatePatch):
       catalogRevision: patch.catalog_invalidated.catalog_revision,
     };
   }
-  return next;
+  return syncTranscriptActivity(next, new Set([
+    ...(patch.sessions?.upsert.map(session => session.id) ?? []),
+    ...(patch.interactions?.upsert.map(interaction => interaction.session_id) ?? []),
+    ...state.interactions.filter(interaction => patch.interactions?.remove_ids.includes(interaction.id))
+      .map(interaction => interaction.session_id),
+  ]));
 }
 
 export function applyTranscriptPage(
@@ -192,9 +238,16 @@ export function applyTranscriptPage(
     [],
   );
   const previous = state.transcripts[sessionId];
+  const session = state.sessions.find(entry => entry.id === sessionId);
+  // A page requested before turn-end must not erase the completed live turn
+  // (including its final reply) while Session status is still catching up.
+  const pagePredatesTerminal = previous?.items.some(item => isActiveTurnTerminal(session, item))
+    && !mapped.some(item => isActiveTurnTerminal(session, item));
   const combined = prepend
     ? [...mapped, ...(previous?.items ?? [])]
-    : mapped;
+    : [...mapped, ...(pagePredatesTerminal
+      ? (previous?.items ?? []).filter(item => item.turn === session?.active_turn?.turn_number)
+      : [])];
   const unique = combined.reduce<TranscriptItem[]>(
     (current, item) => upsertDisplayItem(current, item),
     [],
@@ -206,8 +259,7 @@ export function applyTranscriptPage(
       [sessionId]: {
         items: unique,
         hydrated: true,
-        streaming: state.connection.kind === 'online'
-          && state.sessions.find((session) => session.id === sessionId)?.status === 'running',
+        streaming: sessionIsWorking(state, session, unique),
         hasOlder,
         loadingOlder: false,
         ...(cursor ? { cursor } : {}),
@@ -230,7 +282,7 @@ export function beginTranscriptLoad(
       [sessionId]: {
         items: previous?.items ?? [],
         hydrated: operation === 'older' ? (previous?.hydrated ?? false) : false,
-        streaming: previous?.streaming ?? false,
+        streaming: operation === 'older' && (previous?.streaming ?? false),
         hasOlder: previous?.hasOlder ?? false,
         loadingOlder: operation === 'older',
         ...(previous?.cursor ? { cursor: previous.cursor } : {}),
@@ -418,7 +470,7 @@ function upsertTranscript(
   return {
     items: nextItems,
     hydrated: true,
-    streaming: item.kind !== 'turn-end' && item.kind !== 'error',
+    streaming: false,
     hasOlder: current?.hasOlder ?? false,
     loadingOlder: false,
     ...(current?.cursor ? { cursor: current.cursor } : {}),

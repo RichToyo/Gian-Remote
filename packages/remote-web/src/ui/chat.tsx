@@ -21,6 +21,7 @@ import {
 } from '@gian/chat-ui';
 import type { TranscriptItem } from '@gian/chat-ui';
 import type { RemoteSession } from '@gian/remote-protocol';
+import { sessionIsWorking } from '../controller/apply-control.js';
 import { mutationsEnabled } from '../controller/types.js';
 import { isReadExpanded, readingValue, translationUiFor } from '../controller/translation.js';
 import { useT } from '../i18n/index.js';
@@ -61,7 +62,9 @@ export function ChatPage({ session }: { session: RemoteSession }) {
   }, [transcript, state.interactions, state.interactionPhases, session.id, t]);
 
   // A stale snapshot never looks live: suppress streaming affordances.
-  const streaming = online && (transcript?.streaming ?? false);
+  const streaming = (transcript?.streaming ?? false)
+    && !transcript?.historyError
+    && sessionIsWorking(state, session, items);
   const responding = new Set(
     Object.entries(state.interactionPhases)
       .filter(([, phase]) => phase === 'responding')
@@ -139,6 +142,12 @@ export function ChatPage({ session }: { session: RemoteSession }) {
                 <Transcript
                   items={items}
                   pending={streaming}
+                  workingIndicator={(
+                    <span className="rw-working" role="status">
+                      <span className="spinner" aria-hidden="true" />
+                      {t('transcript.workingEllipsis')}
+                    </span>
+                  )}
                   hydrated={transcript?.hydrated ?? false}
                   hasOlder={transcript?.hasOlder ?? false}
                   loadingOlder={transcript?.loadingOlder ?? false}

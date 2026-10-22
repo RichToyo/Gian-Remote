@@ -699,10 +699,11 @@ export function Transcript({
   }, [items]);
 
   // Show the working indicator whenever a turn is pending, except when the
-  // last item is an approval card — in that case we're waiting on the *user*,
+  // last item is a pending approval card — we're waiting on the *user*,
   // not the model, so an activity indicator would be misleading.
   const lastItem = items[items.length - 1];
-  const showWorking = pending && lastItem?.kind !== 'approval' && workingIndicator != null;
+  const showWorking = pending && !(lastItem?.kind === 'approval' && lastItem.status === 'pending')
+    && workingIndicator != null;
 
   return (
     <div className="transcript" ref={ref}>

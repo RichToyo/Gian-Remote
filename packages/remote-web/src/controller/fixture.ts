@@ -43,6 +43,7 @@ import type {
 } from './types.js';
 import { emptyDraft, emptyTranslationUiState, mutationsEnabled } from './types.js';
 import type { RemoteTranslationUiState } from './types.js';
+import { applyCanonicalEvent } from './apply-control.js';
 
 // ---------------------------------------------------------------------------
 // Scenario / scripting
@@ -645,7 +646,10 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
   }
 
   function replaceSession(session: RemoteSession): void {
-    update({ sessions: state.sessions.map((s) => (s.id === session.id ? session : s)) });
+    update(applyCanonicalEvent(state, {
+      type: 'event', host_generation: 'fixture', event_sequence: 0,
+      event: { kind: 'session.updated', session },
+    }));
   }
 
   /** Mutations require an online connection (§7.4). The UI disables controls

@@ -1,6 +1,8 @@
 services:
   remote:
-    image: ${REMOTE_IMAGE:?An immutable image digest is required}
+    image: ${REMOTE_IMAGE:?An offline image config ID is required}
+    platform: ${REMOTE_PLATFORM:?An explicit Linux platform is required}
+    pull_policy: never
     restart: unless-stopped
     init: true
     env_file: ${REMOTE_RUNTIME_ENV:?Set the absolute runtime.env path}

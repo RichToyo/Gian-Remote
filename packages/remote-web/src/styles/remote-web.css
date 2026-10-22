@@ -859,6 +859,13 @@ input, select, textarea {
 /* ---------- Composer ---------- */
 
 .composer-wrap { position: relative; }
+.rw-working {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font: 500 12px/1.4 var(--font-sans);
+}
 .rw-history-loading {
   display: flex;
   align-items: center;

@@ -16,7 +16,7 @@ test('adoption only reads the existing container and preserves volume, rollback 
   const config = { services: { remote: { image: 'old-tag', build: '.', environment: { GIAN_REMOTE_ADMIN_TOKEN: 'fixture_secret' } } } };
   writeFileSync(join(bin, 'docker'), `#!${process.execPath}\nconst fs=require('fs'),a=process.argv.slice(2);fs.appendFileSync(process.env.CALL_LOG,JSON.stringify(a)+'\\n');if(a[0]==='inspect')console.log(${JSON.stringify(JSON.stringify([info]))});else if(a[0]==='compose')console.log(${JSON.stringify(JSON.stringify(config))});else if(a[0]==='exec')console.log('${'c'.repeat(64)}');else process.exit(1);`, { mode: 0o755 });
   const tooling = join(temp, 'tooling'); mkdirSync(tooling);
-  for (const name of ['compose.yaml', 'deploy.sh', 'ssh-entrypoint.sh']) writeFileSync(join(tooling, name), 'fixture');
+  for (const name of ['compose.yaml', 'deploy.sh', 'offline-release.py']) writeFileSync(join(tooling, name), 'fixture');
   const script = join(dirname(fileURLToPath(import.meta.url)), '../scripts/prepare-existing.py');
   const target = join(temp, 'adopted'); const log = join(temp, 'calls');
   const args = [script, '--container', 'current-remote-1', '--directory', target, '--tooling', tooling];
@@ -31,6 +31,7 @@ test('adoption only reads the existing container and preserves volume, rollback 
   const rollback = JSON.parse(readFileSync(join(target, 'current/compose.yaml')));
   assert.equal(rollback.services.remote.image, image);
   assert.equal(rollback.services.remote.build, undefined);
+  assert.equal(rollback.services.remote.pull_policy, 'never');
   assert.ok(readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse).every(a => ['inspect', 'compose', 'exec'].includes(a[0])));
   assert.notEqual(spawnSync('python3', args, { env, encoding: 'utf8' }).status, 0);
 });

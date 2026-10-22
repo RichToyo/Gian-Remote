@@ -1,86 +1,192 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, symlinkSync, readlinkSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, symlinkSync, readlinkSync, rmSync, existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const script = resolve(existsSync('delivery/remote/scripts/deploy.sh') ? 'delivery/remote/scripts/deploy.sh' : 'scripts/deploy.sh');
+const root = resolve(existsSync('delivery/remote/scripts/deploy.sh') ? 'delivery/remote' : '.');
+const { archiveName, checksumText, json, sha256, tooling } = await import(pathToFileURL(join(root, 'scripts/release-metadata.mjs')));
 const oldRevision = 'a'.repeat(40); const newRevision = 'b'.repeat(40); const schema = 'c'.repeat(64);
+const oldImage = 'sha256:' + 'd'.repeat(64); const newImage = 'sha256:' + 'e'.repeat(64);
 function fixture(t, changedSchema = false) {
-  const base = mkdtempSync(join(tmpdir(), 'gian-remote-deploy-'));
+  const base = mkdtempSync(join(realpathSync(tmpdir()), 'gian-remote-deploy-'));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const bin = join(base, 'bin'); mkdirSync(bin);
   writeFileSync(join(base, 'runtime.env'), 'GIAN_REMOTE_ADMIN_TOKEN=fake-only\n');
-  for (const revision of [oldRevision, newRevision]) {
-    const dir = join(base, 'releases', revision); mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'compose.yaml'), 'services: {}\n');
-    writeFileSync(join(dir, 'deploy.env'), 'REMOTE_IMAGE=fake\n');
-    writeFileSync(join(dir, 'data-schema'), revision === oldRevision && changedSchema ? 'd'.repeat(64) : schema);
-  }
-  symlinkSync(`releases/${oldRevision}`, join(base, 'current'));
+  const old = join(base, 'releases', oldRevision); mkdirSync(old, { recursive: true });
+  writeFileSync(join(old, 'compose.yaml'), 'services: {}\n');
+  writeFileSync(join(old, 'deploy.env'), 'REMOTE_IMAGE=' + oldImage + '\n');
+  writeFileSync(join(old, 'data-schema'), (changedSchema ? 'f'.repeat(64) : schema) + '\n');
+  symlinkSync('releases/' + oldRevision, join(base, 'current'));
+  const incoming = join(base, 'incoming.1234abcd'); mkdirSync(incoming);
+  const tools = tooling.map(item => {
+    const bytes = readFileSync(join(root, item.source));
+    writeFileSync(join(incoming, item.file), bytes);
+    return { file: item.file, source: item.source, size: bytes.length, sha256: sha256(bytes) };
+  });
+  const images = ['amd64', 'arm64'].map(arch => {
+    const bytes = Buffer.from('fake image archive ' + arch);
+    const file = archiveName('v1.2.3', arch);
+    if (arch === 'amd64') writeFileSync(join(incoming, file), bytes);
+    return { platform: 'linux/' + arch, imageId: newImage, file, size: bytes.length, sha256: sha256(bytes) };
+  });
+  const receipt = { schema: 2, repository: 'RichToyo/Gian-Remote', tag: 'v1.2.3', version: '1.2.3',
+    sourceCommit: newRevision, sourceDevCommit: oldRevision, dataSchema: schema, images, tooling: tools };
+  writeFileSync(join(incoming, 'remote-release.json'), json(receipt));
+  const receiptHash = sha256(json(receipt));
+  writeFileSync(join(incoming, 'SHA256SUMS'), checksumText(receipt, receiptHash));
+  const state = join(base, 'state'); writeFileSync(state, oldRevision);
   const put = (name, body) => writeFileSync(join(bin, name), '#!' + process.execPath + '\n' + body, { mode: 0o755 });
-  put('flock', 'process.exit(0);'); put('sleep', 'process.exit(0);');
+  put('flock', "process.exit(process.env.LOCK_BUSY==='1'?1:0);"); put('sleep', 'process.exit(0);');
   put('mv', 'require("fs").renameSync(process.argv.at(-2),process.argv.at(-1));');
-  put('docker', `const fs=require('fs');const a=process.argv.slice(2);fs.appendFileSync(process.env.DEPLOY_LOG,JSON.stringify(a)+'\\n');
-if(a[0]==='compose'&&a.includes('ps')){console.log(a[a.indexOf('-f')+1].split('/').at(-2));}
-if(a[0]==='inspect'){console.log(process.env.FAIL_CANDIDATE==='1'&&a.at(-1)==='${newRevision}'?'unhealthy':'healthy');}`);
-  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, DEPLOY_LOG: join(base, 'calls.jsonl'), REMOTE_DEPLOY_HEALTH_ATTEMPTS: '1' };
-  delete env.GIAN_ALLOW_DESKTOP_E2E;
-  return { base, env, run: fail => spawnSync('bash', [script, base, newRevision, `ghcr.io/richtoyo/gian-remote@sha256:${'e'.repeat(64)}`, schema], { env: { ...env, FAIL_CANDIDATE: fail ? '1' : '0' }, encoding: 'utf8' }), calls: () => readFileSync(env.DEPLOY_LOG, 'utf8').trim().split('\n').map(JSON.parse) };
+  put('docker', String.raw`const fs=require('fs'),a=process.argv.slice(2),env=process.env;
+fs.appendFileSync(env.DEPLOY_LOG,JSON.stringify(a)+'\n');
+const current=()=>fs.readFileSync(env.DEPLOY_STATE,'utf8');
+const revision=a.includes('-f')?a[a.indexOf('-f')+1].split('/').at(-2):current();
+const image=r=>r==='OLD_REV'?'OLD_IMAGE':'NEW_IMAGE';
+if(a[0]==='info')console.log(JSON.stringify({OSType:'linux',Architecture:env.SERVER_ARCH||'amd64'}));
+else if(a[0]==='image'&&a[1]==='inspect'){
+  if(env.CACHE_MISS==='1'&&a.at(-1)==='OLD_IMAGE')process.exit(1);
+  const old=a.at(-1)==='OLD_IMAGE';
+  console.log(JSON.stringify([{Id:old?'OLD_IMAGE':'NEW_IMAGE',Os:'linux',Architecture:env.LOADED_ARCH||'amd64',
+    Config:{Labels:{'org.opencontainers.image.revision':env.BAD_SOURCE==='1'?'wrong':old?'OLD_REV':'NEW_REV','org.opencontainers.image.version':'v1.2.3'}}}]));
 }
-test('deployment backs up stopped data, switches only after health, and retry is idempotent', t => {
-  const f = fixture(t); const result = f.run(false);
+else if(a[0]==='compose'&&a.includes('config'))console.log(JSON.stringify({services:{remote:{image:image(revision),
+  volumes:[{type:'volume',source:'remote-data',target:'/data'}],ports:[{host_ip:'127.0.0.1',published:'8787',target:8787}]}},
+  volumes:{'remote-data':{name:'current_remote-data'}}}));
+else if(a[0]==='compose'&&a.includes('ps'))console.log(current());
+else if(a[0]==='compose'&&a.includes('up'))fs.writeFileSync(env.DEPLOY_STATE,revision);
+else if(a[0]==='inspect'){
+  if(a.includes('--format'))console.log(a[a.indexOf('--format')+1]==='{{.Image}}'?image(current()):
+    env.FAIL_CANDIDATE==='1'&&current()==='NEW_REV'?'unhealthy':'healthy');
+  else console.log(JSON.stringify([{Image:image(current()),State:{Running:true},
+    Config:{Labels:{'com.docker.compose.project':'current','com.docker.compose.service':'remote'},Env:['GIAN_REMOTE_BUILD_ID='+current()]},
+    Mounts:[{Destination:'/data',Type:'volume',Name:env.ACTUAL_VOLUME||'current_remote-data'}],
+    HostConfig:{PortBindings:{'8787/tcp':[{HostIp:'127.0.0.1',HostPort:'8787'}]}}}]));
+}
+else if(a[0]==='run'&&a.includes('node'))console.log(env.BAD_MIGRATIONS==='1'?'bad':'SCHEMA');
+else if(a[0]==='run'&&env.BACKUP_FAIL==='1')process.exit(1);
+else if(a[0]==='exec'&&env.BAD_HEALTH_REVISION==='1'&&current()==='NEW_REV')process.exit(1);
+else if(a[0]==='pull'||a[0]==='login'||a[0]==='build')process.exit(99);
+`.replaceAll('OLD_REV', oldRevision).replaceAll('NEW_REV', newRevision)
+    .replaceAll('OLD_IMAGE', oldImage).replaceAll('NEW_IMAGE', newImage).replaceAll('SCHEMA', schema));
+  const env = { ...process.env, PATH: bin + ':' + process.env.PATH, DEPLOY_LOG: join(base, 'calls.jsonl'),
+    DEPLOY_STATE: state, REMOTE_DEPLOY_HEALTH_ATTEMPTS: '1' };
+  delete env.GIAN_ALLOW_DESKTOP_E2E;
+  const release = join(base, 'releases', newRevision);
+  const run = (mode = 'apply', flags = {}, project = 'current', volume = 'current_remote-data') => {
+    const directory = existsSync(incoming) ? incoming : release;
+    return spawnSync('bash', [join(directory, 'deploy.sh'), mode, base, newRevision, receiptHash, 'amd64', project, volume, '8787'],
+      { env: { ...env, ...flags }, encoding: 'utf8' });
+  };
+  const calls = () => existsSync(env.DEPLOY_LOG) ? readFileSync(env.DEPLOY_LOG, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
+  return { base, env, incoming, release, run, calls, receipt, receiptHash };
+}
+function noPull(calls) {
+  assert.equal(calls.some(args => ['pull', 'login', 'build'].includes(args[0])), false);
+  for (const args of calls.filter(args => args.includes('up'))) {
+    assert.equal(args[args.indexOf('--pull') + 1], 'never');
+    assert.ok(args.includes('--no-build'));
+  }
+  for (const args of calls.filter(args => args[0] === 'run')) assert.ok(args.includes('--pull=never'));
+}
+
+test('default staging verifies immutable files and platform without loading an image or touching the current service', t => {
+  const f = fixture(t); const result = f.run('stage');
   assert.equal(result.status, 0, result.stderr + result.stdout);
-  assert.equal(readlinkSync(join(f.base, 'current')), `releases/${newRevision}`);
-  const calls = f.calls();
-  const stop = calls.findIndex(a => a.includes('stop'));
-  const backup = calls.findIndex(a => a[0] === 'run');
-  const start = calls.findIndex(a => a.includes('up'));
-  assert.ok(stop >= 0 && backup > stop && start > backup);
-  assert.equal(f.run(false).status, 0);
-  assert.equal(f.calls().filter(a => a.includes('up')).length, 1);
+  assert.equal(readlinkSync(join(f.base, 'current')), 'releases/' + oldRevision);
+  assert.ok(f.calls().every(args => args[0] === 'info'));
+  assert.equal(f.run('stage').status, 0);
 });
-test('failed health restores previous image when migration fingerprint is unchanged', t => {
-  const f = fixture(t); const result = f.run(true);
+
+test('deployment verifies before stop, backs up stopped data, switches only after exact-revision health, and retries without restart', t => {
+  const f = fixture(t); const result = f.run();
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.equal(readlinkSync(join(f.base, 'current')), 'releases/' + newRevision);
+  const calls = f.calls();
+  const stop = calls.findIndex(args => args.includes('stop'));
+  const backup = calls.findIndex(args => args.includes('tar'));
+  const start = calls.findIndex(args => args.includes('up'));
+  assert.ok(calls.findIndex(args => args[0] === 'load') < stop);
+  assert.ok(calls.findIndex(args => args[0] === 'image' && args.at(-1) === oldImage) < stop);
+  assert.ok(stop >= 0 && backup > stop && start > backup);
+  assert.equal(f.run().status, 0);
+  assert.equal(f.calls().filter(args => args.includes('up')).length, 1);
+  noPull(f.calls());
+});
+
+test('failed health restores only the cached previous image when migration fingerprint is unchanged', t => {
+  const f = fixture(t); const result = f.run('apply', { FAIL_CANDIDATE: '1' });
   assert.notEqual(result.status, 0);
   assert.match(result.stdout, /previous image restored/);
-  assert.equal(readlinkSync(join(f.base, 'current')), `releases/${oldRevision}`);
-  const starts = f.calls().filter(a => a.includes('up'));
+  assert.equal(readlinkSync(join(f.base, 'current')), 'releases/' + oldRevision);
+  const starts = f.calls().filter(args => args.includes('up'));
   assert.equal(starts.length, 2);
-  assert.ok(starts[1].some(a => a.includes(oldRevision)));
+  assert.ok(starts[1].some(arg => arg.includes(oldRevision)));
+  noPull(f.calls());
 });
+
 test('failed migration-changing deployment stops instead of running old code on new data', t => {
-  const f = fixture(t, true); const result = f.run(true);
+  const f = fixture(t, true); const result = f.run('apply', { FAIL_CANDIDATE: '1' });
   assert.notEqual(result.status, 0);
   assert.match(result.stdout, /automatic rollback withheld/);
-  assert.equal(f.calls().filter(a => a.includes('up')).length, 1);
-  assert.equal(readlinkSync(join(f.base, 'current')), `releases/${oldRevision}`);
+  assert.equal(f.calls().filter(args => args.includes('up')).length, 1);
+  assert.equal(readlinkSync(join(f.base, 'current')), 'releases/' + oldRevision);
+  noPull(f.calls());
 });
 
-test('adopted deployment keeps the existing Compose project and named data volume', t => {
-  const f = fixture(t);
-  f.env.REMOTE_COMPOSE_PROJECT = 'current';
-  f.env.REMOTE_DATA_VOLUME = 'current_remote-data';
-  const result = f.run(false);
-  assert.equal(result.status, 0, result.stderr);
-  for (const call of f.calls().filter(a => a[0] === 'compose')) assert.equal(call[call.indexOf('--project-name') + 1], 'current');
-  assert.ok(f.calls().find(a => a[0] === 'run').includes('current_remote-data:/data:ro'));
-  assert.match(readFileSync(join(f.base, 'releases', newRevision, 'deploy.env'), 'utf8'), /REMOTE_DATA_VOLUME=current_remote-data/);
-});
-
-test('restricted SSH entrypoint rejects arbitrary shells and only invokes its fixed deployment tooling', t => {
-  const f = fixture(t);
-  const entrypoint = resolve(existsSync('delivery/remote/scripts/ssh-entrypoint.sh') ? 'delivery/remote/scripts/ssh-entrypoint.sh' : 'scripts/ssh-entrypoint.sh');
-  const tooling = join(f.base, 'tooling'); mkdirSync(tooling);
-  writeFileSync(join(tooling, 'compose.yaml'), 'services: {}\n');
-  writeFileSync(join(tooling, 'deploy.sh'), 'printf "%s %s" "$REMOTE_COMPOSE_PROJECT" "$REMOTE_DATA_VOLUME" > "$1/accepted"\n');
-  const run = command => spawnSync('bash', [entrypoint, f.base, 'current', 'current_remote-data'], { env: { ...f.env, SSH_ORIGINAL_COMMAND: command }, input: 'ci_user\nfixture_token\n', encoding: 'utf8' });
-  for (const command of ['uname -a', 'scp -t /root/.ssh', `deploy ${newRevision} ghcr.io/other/image@sha256:${schema} ${schema}`, `deploy ${newRevision} ghcr.io/richlogic/gian-remote@sha256:${schema} ${schema}`, `deploy ${newRevision} ghcr.io/richtoyo/gian-remote@sha256:${schema} ${schema}; id`]) {
-    assert.notEqual(run(command).status, 0);
-    assert.equal(existsSync(join(f.base, 'accepted')), false);
+test('preflight rejects rollback cache miss, wrong platform/source/schema, target drift and busy locks before stopping', t => {
+  for (const flags of [{ CACHE_MISS: '1' }, { SERVER_ARCH: 'arm64' }, { LOADED_ARCH: 'arm64' },
+    { BAD_SOURCE: '1' }, { BAD_MIGRATIONS: '1' }, { ACTUAL_VOLUME: 'other-data' }, { LOCK_BUSY: '1' }]) {
+    const f = fixture(t); const result = f.run('apply', flags);
+    assert.notEqual(result.status, 0, JSON.stringify(flags));
+    assert.equal(f.calls().some(args => args.includes('stop') || args.includes('up')), false);
+    assert.equal(readlinkSync(join(f.base, 'current')), 'releases/' + oldRevision);
+    noPull(f.calls());
   }
-  const result = run(`deploy ${newRevision} ghcr.io/richtoyo/gian-remote@sha256:${schema} ${schema}`);
+  for (const [project, volume] of [['other', 'current_remote-data'], ['current', 'other-data']]) {
+    const f = fixture(t);
+    assert.notEqual(f.run('apply', {}, project, volume).status, 0);
+    assert.equal(f.calls().some(args => args.includes('stop')), false);
+  }
+});
+
+test('partial/corrupt uploads and dirty same-release retries never disturb current service', t => {
+  for (const change of ['archive', 'missing', 'extra', 'receipt', 'symlink', 'dirty-retry']) {
+    const f = fixture(t);
+    const archive = join(f.incoming, f.receipt.images[0].file);
+    if (change === 'archive') writeFileSync(archive, 'corrupt');
+    if (change === 'missing') rmSync(archive);
+    if (change === 'extra') writeFileSync(join(f.incoming, 'unexpected'), 'dirty');
+    if (change === 'receipt') writeFileSync(join(f.incoming, 'remote-release.json'), '{}');
+    if (change === 'symlink') { rmSync(archive); symlinkSync('compose.yaml', archive); }
+    if (change === 'dirty-retry') {
+      assert.equal(f.run('stage').status, 0);
+      writeFileSync(join(f.release, 'unexpected'), 'dirty');
+    }
+    assert.notEqual(f.run().status, 0, change);
+    assert.equal(f.calls().some(args => args[0] === 'load' || args.includes('stop') || args.includes('up')), false);
+    assert.equal(readlinkSync(join(f.base, 'current')), 'releases/' + oldRevision);
+  }
+});
+
+test('adopted target keeps the existing Compose project, named data volume and rollback namespace', t => {
+  const f = fixture(t); const result = f.run();
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(readFileSync(join(f.base, 'accepted'), 'utf8'), 'current current_remote-data');
+  for (const args of f.calls().filter(args => args[0] === 'compose')) assert.equal(args[args.indexOf('--project-name') + 1], 'current');
+  assert.ok(f.calls().find(args => args.includes('tar')).includes('current_remote-data:/data:ro'));
+  assert.match(readFileSync(join(f.release, 'deploy.env'), 'utf8'), /REMOTE_DATA_VOLUME=current_remote-data/);
+  noPull(f.calls());
+});
+
+test('backup or exact running-revision failure cannot advance the current symlink', t => {
+  for (const flags of [{ BACKUP_FAIL: '1' }, { BAD_HEALTH_REVISION: '1' }]) {
+    const f = fixture(t);
+    assert.notEqual(f.run('apply', flags).status, 0);
+    assert.equal(readlinkSync(join(f.base, 'current')), 'releases/' + oldRevision);
+    assert.match(readFileSync(join(f.release, 'data-schema'), 'utf8'), new RegExp(schema));
+    noPull(f.calls());
+  }
 });

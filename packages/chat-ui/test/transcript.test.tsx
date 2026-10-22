@@ -106,12 +106,22 @@ describe('Transcript body', () => {
   });
 
   it('no working indicator while waiting on the user (trailing approval)', () => {
-    render(
+    const { rerender } = render(
       <Transcript items={[userMsg(), approval()]} pending onApprove={onApprove}
         workingIndicator={<span data-testid="working">…</span>} />,
     );
     expect(screen.queryByTestId('working')).toBeNull();
     expect(screen.getByText('Allow once')).toBeInTheDocument();
+    rerender(
+      <Transcript items={[userMsg(), approval({ status: 'approved-once' })]} pending onApprove={onApprove}
+        workingIndicator={<span data-testid="working">…</span>} />,
+    );
+    expect(screen.getByTestId('working')).toBeInTheDocument();
+    rerender(
+      <Transcript items={[userMsg(), approval({ status: 'approved-once' })]} pending={false} onApprove={onApprove}
+        workingIndicator={<span data-testid="working">…</span>} />,
+    );
+    expect(screen.queryByTestId('working')).toBeNull();
   });
 
   it('hiddenApprovalId suppresses the pinned card', () => {

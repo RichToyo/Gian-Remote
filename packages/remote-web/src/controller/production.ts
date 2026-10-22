@@ -285,6 +285,16 @@ export function createProductionController(options: ProductionControllerOptions)
 
   function update(patch: Partial<RemoteUiState>): void {
     state = { ...state, ...patch };
+    // Reconnecting cannot reuse a pre-disconnect running indication. A fresh
+    // Host session projection or history page must confirm it again.
+    if (patch.connection && patch.connection.kind !== 'online') {
+      state = {
+        ...state,
+        transcripts: Object.fromEntries(Object.entries(state.transcripts).map(([sessionId, transcript]) => [
+          sessionId, { ...transcript, streaming: false },
+        ])),
+      };
+    }
     emit();
   }
 

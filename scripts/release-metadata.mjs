@@ -1,34 +1,123 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { createReadStream, lstatSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export function validateReleaseReceipt(value, { repository, tag, revision } = {}) {
-  if (value.schema !== 1 || value.repository !== repository || value.tag !== tag || value.sourceCommit !== revision
-    || !/^v\d+\.\d+\.\d+$/.test(tag ?? '') || value.version !== tag.slice(1)
-    || !/^[a-f0-9]{40}$/.test(revision ?? '')
-    || !value.image?.startsWith(`ghcr.io/${repository.toLowerCase()}@sha256:`)
-    || !/@sha256:[a-f0-9]{64}$/.test(value.image)
-    || !/^[a-f0-9]{64}$/.test(value.dataSchema ?? '')) throw new Error('Invalid Remote release receipt');
+export const repository = 'RichToyo/Gian-Remote';
+export const architectures = ['amd64', 'arm64'];
+export const tooling = [
+  { file: 'compose.yaml', source: 'compose.yaml' },
+  { file: 'deploy.sh', source: 'scripts/deploy.sh' },
+  { file: 'offline-release.py', source: 'scripts/offline-release.py' },
+];
+const hex = /^[a-f0-9]{64}$/;
+export const json = value => JSON.stringify(value, null, 2) + '\n';
+export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+export const archiveName = (tag, arch) => 'gian-remote-' + tag + '-linux-' + arch + '.tar.gz';
+function keys(value, expected) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).length !== expected.length || expected.some(key => !Object.hasOwn(value, key))) throw new Error('Unknown or missing release metadata fields');
+}
+function descriptor(value, file) {
+  if (value.file !== file || !hex.test(value.sha256 ?? '') || !Number.isSafeInteger(value.size)
+    || value.size < 1 || value.size > 2 ** 31) throw new Error('Invalid release asset descriptor');
+}
+export function validateReleaseReceipt(value, expected = {}) {
+  keys(value, ['schema', 'repository', 'tag', 'version', 'sourceCommit', 'sourceDevCommit', 'dataSchema', 'images', 'tooling']);
+  if (value.schema !== 2 || value.repository !== repository || !/^v\d+\.\d+\.\d+$/.test(value.tag ?? '')
+    || value.version !== value.tag.slice(1) || !/^[a-f0-9]{40}$/.test(value.sourceCommit ?? '')
+    || !/^[a-f0-9]{40}$/.test(value.sourceDevCommit ?? '') || !hex.test(value.dataSchema ?? '')
+    || Object.entries(expected).some(([key, wanted]) => value[key === 'revision' ? 'sourceCommit' : key] !== wanted)
+    || !Array.isArray(value.images) || value.images.length !== 2
+    || !Array.isArray(value.tooling) || value.tooling.length !== tooling.length) throw new Error('Invalid offline Remote release receipt (schema 2 required)');
+  for (const [index, arch] of architectures.entries()) {
+    const image = value.images[index];
+    keys(image, ['platform', 'imageId', 'file', 'size', 'sha256']);
+    descriptor(image, archiveName(value.tag, arch));
+    if (image.platform !== 'linux/' + arch || !/^sha256:[a-f0-9]{64}$/.test(image.imageId ?? '')) throw new Error('Invalid image platform or config ID');
+  }
+  for (const [index, item] of tooling.entries()) {
+    const asset = value.tooling[index];
+    keys(asset, ['file', 'source', 'size', 'sha256']);
+    descriptor(asset, item.file);
+    if (asset.source !== item.source) throw new Error('Invalid versioned deployment tooling');
+  }
   return value;
 }
-export function createReleaseReceipt({ repository, tag, revision, digest }) {
+export function readReceipt(directory) {
+  const path = join(directory, 'remote-release.json');
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.size > 1024 * 1024) throw new Error('Expected a regular, bounded receipt');
+  const bytes = readFileSync(path, 'utf8');
+  const receipt = validateReleaseReceipt(JSON.parse(bytes));
+  if (json(receipt) !== bytes) throw new Error('Noncanonical or duplicate-key receipt');
+  return { receipt, receiptHash: sha256(bytes) };
+}
+export async function describeFile(path, file) {
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.size < 1 || stat.size > 2 ** 31) throw new Error('Expected a bounded regular file: ' + file);
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return { file, size: stat.size, sha256: hash.digest('hex') };
+}
+export function checksumText(receipt, receiptHash) {
+  return [...receipt.images, ...receipt.tooling, { file: 'remote-release.json', sha256: receiptHash }]
+    .sort((a, b) => a.file < b.file ? -1 : 1).map(asset => asset.sha256 + '  ' + asset.file + '\n').join('');
+}
+export async function verifyOfflineBundle(directory, { arch, ...expected }) {
+  if (!architectures.includes(arch) || !lstatSync(directory).isDirectory()) throw new Error('Expected an archive directory and explicit amd64/arm64 architecture');
+  const { receipt, receiptHash } = readReceipt(directory);
+  validateReleaseReceipt(receipt, expected);
+  const image = receipt.images.find(item => item.platform === 'linux/' + arch);
+  const assets = [...receipt.tooling, image];
+  const names = ['remote-release.json', 'SHA256SUMS', ...assets.map(item => item.file)].sort();
+  if (readdirSync(directory).sort().join() !== names.join()) throw new Error('Partial or dirty archive directory; refusing to overwrite or deploy');
+  for (const asset of assets) {
+    const actual = await describeFile(join(directory, asset.file), asset.file);
+    if (actual.size !== asset.size || actual.sha256 !== asset.sha256) throw new Error('Asset integrity mismatch: ' + asset.file);
+  }
+  const sums = lstatSync(join(directory, 'SHA256SUMS'));
+  if (!sums.isFile() || sums.size > 16384
+    || readFileSync(join(directory, 'SHA256SUMS'), 'utf8') !== checksumText(receipt, receiptHash)) throw new Error('Invalid SHA256SUMS');
+  return { receipt, receiptHash, image, files: names };
+}
+export async function createReleaseReceipt({ repository: repo, tag, revision, directory = 'artifacts' }) {
   const config = JSON.parse(readFileSync('release.json'));
   const provenance = JSON.parse(readFileSync('.gian-source.json'));
-  if (repository !== config.repository || tag !== `v${config.version}` || provenance.workingTree) throw new Error('Release requires a committed Remote export and matching version/tag');
+  if (repo !== repository || repo !== config.repository || tag !== 'v' + config.version || provenance.workingTree !== false) throw new Error('Release requires a committed export and matching version/tag');
   const hash = createHash('sha256');
   for (const name of readdirSync('packages/remote-server/migrations').sort()) {
-    hash.update(name + '\0').update(readFileSync(`packages/remote-server/migrations/${name}`)).update('\0');
+    hash.update(name + '\0').update(readFileSync('packages/remote-server/migrations/' + name)).update('\0');
   }
-  return validateReleaseReceipt({ schema: 1, repository, tag, version: config.version, sourceCommit: revision, sourceDevCommit: provenance.sourceCommit, image: `ghcr.io/${repository.toLowerCase()}@${digest}`, dataSchema: hash.digest('hex') }, { repository, tag, revision });
+  const images = [];
+  for (const arch of architectures) {
+    const image = JSON.parse(readFileSync(join(directory, 'image-' + arch + '.json')));
+    keys(image, ['sourceCommit', 'tag', 'platform', 'imageId', 'file', 'size', 'sha256']);
+    descriptor(image, archiveName(tag, arch));
+    if (image.sourceCommit !== revision || image.tag !== tag) throw new Error('Image artifact source mismatch');
+    const actual = await describeFile(join(directory, image.file), archiveName(tag, arch));
+    if (image.file !== actual.file || image.size !== actual.size || image.sha256 !== actual.sha256) throw new Error('Image artifact integrity mismatch');
+    images.push({ platform: image.platform, imageId: image.imageId, ...actual });
+  }
+  const tools = [];
+  for (const item of tooling) tools.push({ ...await describeFile(item.source, item.file), source: item.source });
+  return validateReleaseReceipt({ schema: 2, repository: repo, tag, version: config.version, sourceCommit: revision,
+    sourceDevCommit: provenance.sourceCommit, dataSchema: hash.digest('hex'), images, tooling: tools }, { repository: repo, tag, revision });
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [mode, path] = process.argv.slice(2);
+  const [mode, path, arch, imageId] = process.argv.slice(2);
   const inputs = { repository: process.env.GITHUB_REPOSITORY, tag: process.env.RELEASE_TAG, revision: process.env.RELEASE_SHA };
-  const receipt = mode === 'create'
-    ? createReleaseReceipt({ ...inputs, digest: process.env.IMAGE_DIGEST })
-    : mode === 'verify' ? validateReleaseReceipt(JSON.parse(readFileSync(path)), inputs) : null;
-  if (!receipt) throw new Error('Expected create or verify');
-  if (mode === 'create') writeFileSync(path, JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx' });
-  else process.stdout.write(`${receipt.image}\n${receipt.dataSchema}\n`);
+  if (mode === 'image') {
+    if (!architectures.includes(arch) || !/^sha256:[a-f0-9]{64}$/.test(imageId ?? '')
+      || !/^v\d+\.\d+\.\d+$/.test(inputs.tag ?? '') || !/^[a-f0-9]{40}$/.test(inputs.revision ?? '')) throw new Error('Invalid native image identity');
+    const asset = await describeFile(join(path, archiveName(inputs.tag, arch)), archiveName(inputs.tag, arch));
+    writeFileSync(join(path, 'image-' + arch + '.json'), json({ sourceCommit: inputs.revision, tag: inputs.tag, platform: 'linux/' + arch, imageId, ...asset }), { flag: 'wx' });
+  } else if (mode === 'create') {
+    const receipt = await createReleaseReceipt(inputs);
+    const bytes = json(receipt);
+    writeFileSync(path, bytes, { flag: 'wx' });
+    writeFileSync('SHA256SUMS', checksumText(receipt, sha256(bytes)), { flag: 'wx' });
+  } else if (mode === 'verify') {
+    validateReleaseReceipt(JSON.parse(readFileSync(path)), inputs);
+  } else throw new Error('Expected image, create or verify');
 }
