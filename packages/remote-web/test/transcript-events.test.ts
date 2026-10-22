@@ -150,7 +150,7 @@ describe('Remote transcript projection', () => {
       expect(terminal.transcripts[active.id]!.streaming).toBe(false);
       const reply = applyCanonicalEvent(terminal, event({
         kind: 'transcript.item', session_id: active.id,
-        item: { ...common(), turn: 3, kind: 'assistant', text: 'Final reply' },
+        item: { ...common(), turn: 3, kind: 'assistant', text: 'Final reply', delta: false },
       }));
       expect(reply.transcripts[active.id]!.streaming).toBe(false);
       expect(reply.transcripts[active.id]!.items).toContainEqual(expect.objectContaining({ text: 'Final reply' }));

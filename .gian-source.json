@@ -2,7 +2,7 @@
   "schema": 1,
   "product": "Gian Remote",
   "sourceRepository": "RichLogic/Gian-Dev",
-  "sourceCommit": "20165e0b73065bbfd9fcb4eedd0db12f987e59ad",
+  "sourceCommit": "f44ec3aa91c0d21d6d479b72d0d867dbd76f5daf",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -1105,7 +1105,7 @@
     {
       "source": "packages/remote-web/test/transcript-events.test.ts",
       "path": "packages/remote-web/test/transcript-events.test.ts",
-      "sha256": "cb6065092aea266991f3bcaea1417e1c16a98c8b1406fd09f902af36be3eb434"
+      "sha256": "9ef0654687c4dfed95098b25ecabf885fc7e27c54204f85234f29b214860bb8e"
     },
     {
       "source": "packages/remote-web/test/translation-ui.test.tsx",
@@ -2367,7 +2367,7 @@
     {
       "path": "packages/remote-web/test/transcript-events.test.ts",
       "mode": 420,
-      "sha256": "cb6065092aea266991f3bcaea1417e1c16a98c8b1406fd09f902af36be3eb434"
+      "sha256": "9ef0654687c4dfed95098b25ecabf885fc7e27c54204f85234f29b214860bb8e"
     },
     {
       "path": "packages/remote-web/test/translation-ui.test.tsx",
