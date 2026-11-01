@@ -71,6 +71,7 @@ export function installControllerEnrollmentRoutes(
     if (claimed.status === 'consumed') return context.json(errorBody('ENROLLMENT_CONSUMED'), 409);
     if (claimed.status === 'expired') return context.json(errorBody('ENROLLMENT_EXPIRED'), 410);
     if (claimed.status === 'conflict') return context.json(errorBody('CONTROLLER_ALREADY_ADMITTED'), 409);
+    if (claimed.status !== 'claimed') throw new Error('Unexpected controller enrollment result');
     return context.json({
       protocol: AUTH_PROTOCOL,
       browser_installation_id: claimed.device.browser_installation_id,
@@ -128,7 +129,7 @@ export function installControllerEnrollmentRoutes(
       return context.json(errorBody(pairing?.revoked_at ? 'DEVICE_REVOKED' : 'DEVICE_NOT_PAIRED'), 401);
     }
     await identityFingerprint(body.device_public_key);
-    if (repos.controllerKeyConflict(body.device_public_key, body.browser_installation_id)) {
+    if (repos.controllerKeyConflict(JSON.stringify(body.device_public_key), body.browser_installation_id)) {
       return context.json(errorBody('CONTROLLER_ALREADY_ADMITTED'), 409);
     }
     const challenge = randomSecret();

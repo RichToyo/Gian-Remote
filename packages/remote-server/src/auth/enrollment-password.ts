@@ -1,7 +1,4 @@
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
-import { promisify } from 'node:util';
-
-const scrypt = promisify(scryptCallback);
 
 const N = 16384;
 const R = 8;
@@ -56,5 +53,10 @@ function decode(value: string): Buffer | undefined {
 }
 
 function derive(password: string, salt: Buffer, cost: number, r: number, p: number): Promise<Buffer> {
-  return scrypt(password, salt, KEYLEN, { N: cost, r, p, maxmem: 64 * 1024 * 1024 }) as Promise<Buffer>;
+  return new Promise((resolve, reject) => {
+    scryptCallback(password, salt, KEYLEN, { N: cost, r, p, maxmem: 64 * 1024 * 1024 }, (error, key) => {
+      if (error) reject(error);
+      else resolve(key);
+    });
+  });
 }

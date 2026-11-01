@@ -5,6 +5,7 @@ import {
   RemoteProtocolError,
   bytesToBase64Url,
   discoverServerIdentity,
+  serverIdentityProofResultSchema,
   verifyServerIdentityProof,
 } from '@gian/remote-protocol';
 import { makeRemoteTestApp } from './fixture.js';
@@ -27,8 +28,8 @@ test('server identity proof binds the caller nonce and a replaced fingerprint is
     });
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'no-store');
-    const proof = await response.json() as { nonce?: string; expires_at: number; server_identity: { fingerprint: string } };
-    assert.equal(proof.nonce, undefined);
+    const proof = serverIdentityProofResultSchema.parse(await response.json());
+    assert.equal('nonce' in proof, false);
     assert.equal(proof.expires_at, f.clock.now + 120_000);
     assert.equal(proof.server_identity.fingerprint, f.handle.services.identity.fingerprint);
     const verified = await verifyServerIdentityProof({ nonce, proof, now: f.clock.now });

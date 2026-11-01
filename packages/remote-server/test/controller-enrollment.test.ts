@@ -254,6 +254,15 @@ test('confirmed legacy pairing migrates by old-key proof; revoked, pending, and 
   try {
     const host = await enrollHost(f.fetch);
     const legacy = await pairDevice(f.fetch, host.accessToken, host.hostId);
+    const admitted = await enrollNativeController(f.fetch, 'iOS');
+    const duplicate = await f.fetch('/api/v1/controller-migrations/challenge', post({
+      protocol: AUTH_PROTOCOL,
+      browser_installation_id: legacy.browserId,
+      host_id: host.hostId,
+      device_public_key: await exportPublicJwk(admitted.keys.publicKey),
+    }));
+    assert.equal(duplicate.status, 409);
+    assert.equal((await duplicate.json() as { error: { code: string } }).error.code, 'CONTROLLER_ALREADY_ADMITTED');
     const controllerKeys = await generateP256SigningKeyPair();
     const challengeResponse = await f.fetch('/api/v1/controller-migrations/challenge', post({
       protocol: AUTH_PROTOCOL,

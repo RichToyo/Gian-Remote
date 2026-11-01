@@ -2,7 +2,7 @@
   "schema": 1,
   "product": "Gian Remote",
   "sourceRepository": "RichLogic/Gian-Dev",
-  "sourceCommit": "ea034f3e78db810a6c9a3fd5c33788bcfb85ead1",
+  "sourceCommit": "55b26ebe95829202000d24faf22a8fbccb9d3b98",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -500,7 +500,7 @@
     {
       "source": "packages/remote-server/src/auth/enrollment-password.ts",
       "path": "packages/remote-server/src/auth/enrollment-password.ts",
-      "sha256": "1cc2ceeaadddd204e4024b20814e1e25463f6f96840309ac621be3b1ae8b7161"
+      "sha256": "f017630df4c7d4b45e3bf21764bdc3752b7f1d8d07b6c2df2d89db63a2f3a1e2"
     },
     {
       "source": "packages/remote-server/src/auth/github-identity.ts",
@@ -545,7 +545,7 @@
     {
       "source": "packages/remote-server/src/controller-enrollment-routes.ts",
       "path": "packages/remote-server/src/controller-enrollment-routes.ts",
-      "sha256": "00b34ac09e201049f54a2e55df3408400869b0324d915fcc80bc00abc8e46296"
+      "sha256": "bcea292121abdd2a7abd52e1f52e5bbda1733df7d987b4a02be2fcfc9d11199b"
     },
     {
       "source": "packages/remote-server/src/crypto-hash.ts",
@@ -640,7 +640,7 @@
     {
       "source": "packages/remote-server/test/controller-enrollment.test.ts",
       "path": "packages/remote-server/test/controller-enrollment.test.ts",
-      "sha256": "a8fd28e28f483988a9b52151163abd26bf07d2c64c567af7940d403df65bacf0"
+      "sha256": "150d28b44888d2c8a44a20f7ccd0050c75faf6df2df345972759d3e9bc886180"
     },
     {
       "source": "packages/remote-server/test/enrollment.test.ts",
@@ -690,7 +690,7 @@
     {
       "source": "packages/remote-server/test/server-identity.test.ts",
       "path": "packages/remote-server/test/server-identity.test.ts",
-      "sha256": "383df8797854290855459a6bb854b1c337d205f01adf6d9e084fda05783ef5fd"
+      "sha256": "979e6a1dacae77a50bdffed31eba473dfcd6247c159e1392738c0c0d33bd429c"
     },
     {
       "source": "packages/remote-server/test/sessions.test.ts",
@@ -1817,7 +1817,7 @@
     {
       "path": "packages/remote-server/src/auth/enrollment-password.ts",
       "mode": 420,
-      "sha256": "1cc2ceeaadddd204e4024b20814e1e25463f6f96840309ac621be3b1ae8b7161"
+      "sha256": "f017630df4c7d4b45e3bf21764bdc3752b7f1d8d07b6c2df2d89db63a2f3a1e2"
     },
     {
       "path": "packages/remote-server/src/auth/github-identity.ts",
@@ -1862,7 +1862,7 @@
     {
       "path": "packages/remote-server/src/controller-enrollment-routes.ts",
       "mode": 420,
-      "sha256": "00b34ac09e201049f54a2e55df3408400869b0324d915fcc80bc00abc8e46296"
+      "sha256": "bcea292121abdd2a7abd52e1f52e5bbda1733df7d987b4a02be2fcfc9d11199b"
     },
     {
       "path": "packages/remote-server/src/crypto-hash.ts",
@@ -1957,7 +1957,7 @@
     {
       "path": "packages/remote-server/test/controller-enrollment.test.ts",
       "mode": 420,
-      "sha256": "a8fd28e28f483988a9b52151163abd26bf07d2c64c567af7940d403df65bacf0"
+      "sha256": "150d28b44888d2c8a44a20f7ccd0050c75faf6df2df345972759d3e9bc886180"
     },
     {
       "path": "packages/remote-server/test/enrollment.test.ts",
@@ -2007,7 +2007,7 @@
     {
       "path": "packages/remote-server/test/server-identity.test.ts",
       "mode": 420,
-      "sha256": "383df8797854290855459a6bb854b1c337d205f01adf6d9e084fda05783ef5fd"
+      "sha256": "979e6a1dacae77a50bdffed31eba473dfcd6247c159e1392738c0c0d33bd429c"
     },
     {
       "path": "packages/remote-server/test/sessions.test.ts",
