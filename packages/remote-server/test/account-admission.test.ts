@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ACCOUNT_PROTOCOL, AUTH_PROTOCOL, accountLoginStartedSchema, exportPublicJwk,
   generateCanonicalId, generateP256SigningKeyPair, remoteAccountChallengePayload, signBytes } from '@gian/remote-protocol';
-import { authorizeAccount, enrollHost, makeRemoteTestApp, pairDevice } from './fixture.js';
+import { authorizeAccount, cookieHeader, enrollHost, makeRemoteTestApp, pairDevice } from './fixture.js';
 import { hashSecret } from '../src/crypto-hash.js';
 
 const json = (value: unknown, token?: string): RequestInit => ({ method: 'POST',
@@ -105,7 +105,13 @@ test('browser without GitHub needs Host confirmation and device key; delegated l
     const response = await login(keys.privateKey);
     assert.equal(response.status, 200);
     const session = await response.json() as { access_token: string };
-    assert.equal((await f.fetch('/api/v1/enrollment/tokens', json({ protocol: AUTH_PROTOCOL }, session.access_token))).status, 401);
+    const csrfResponse = await f.fetch('/api/v1/enrollment/csrf');
+    const csrf = await csrfResponse.json() as { csrf_token: string };
+    const issuance = json({ protocol: AUTH_PROTOCOL }, session.access_token);
+    const headers = new Headers(issuance.headers);
+    headers.set('cookie', cookieHeader(csrfResponse.headers.getSetCookie()));
+    headers.set('x-gian-csrf', csrf.csrf_token);
+    assert.equal((await f.fetch('/api/v1/enrollment/tokens', { ...issuance, headers })).status, 401);
     assert.equal((await f.fetch('/api/v1/ws-tickets', json({ protocol: AUTH_PROTOCOL, host_id: host.hostId }, session.access_token))).status, 200);
     f.handle.services.db.prepare("UPDATE account_peers SET expires_at = ?").run(f.clock.now - 1);
     f.clock.tick(1000);
