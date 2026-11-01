@@ -414,7 +414,7 @@ export class RemoteRepositories {
       if (this.isRevokedPublicKey(input.publicKeyJwk)) return undefined;
       const existing = this.getPairingByBrowserHost(input.browserInstallationId, input.hostId);
       if (existing?.confirmed_at && !existing.revoked_at) return undefined;
-      if (existing && pairingKeyHash(existing.public_key_jwk) === pairingKeyHash(input.publicKeyJwk)) {
+      if (existing?.public_key_jwk && pairingKeyHash(existing.public_key_jwk) === pairingKeyHash(input.publicKeyJwk)) {
         return undefined;
       }
       const pairingId = generateCanonicalId();

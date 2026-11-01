@@ -118,10 +118,14 @@ test('browser without GitHub needs Host confirmation and device key; delegated l
     assert.equal((await f.fetch('/api/v1/ws-tickets', json({ protocol: AUTH_PROTOCOL, host_id: host.hostId }, session.access_token))).status, 200);
     f.handle.services.config.maxDevicesPerHost = 1;
     f.handle.services.repos.createPairingGrant(host.hostId, hashSecret('fresh-code'), hashSecret('fresh-nonce'));
-    const freshClaim = await f.fetch('/api/v1/pairings/claim', json({ protocol: AUTH_PROTOCOL,
+    const freshInput = { protocol: AUTH_PROTOCOL,
       browser_installation_id: browserId, device_public_key: await exportPublicJwk(wrongKeys.publicKey),
-      grant_nonce: 'fresh-nonce', platform: 'phone', user_agent: 'browser' }));
-    assert.equal(freshClaim.status, 200, 'expired delegation can be paired again with a fresh device key');
+      grant_nonce: 'fresh-nonce', platform: 'phone', user_agent: 'browser' };
+    const blocked = await f.fetch('/api/v1/pairings/claim', json(freshInput));
+    assert.equal(blocked.status, 429, 'GitHub expiry must not free an active pairing slot');
+    f.handle.services.repos.revokePairing(pairing.pairing_id);
+    const freshClaim = await f.fetch('/api/v1/pairings/claim', json(freshInput));
+    assert.equal(freshClaim.status, 200, 'explicitly revoked devices can pair with a fresh key');
     assert.equal((await f.fetch('/api/v1/sessions/device-challenge', json(deviceInput))).status, 401, 're-pairing still needs Host confirmation');
   } finally { f.handle.shutdown(); }
 });
@@ -228,6 +232,16 @@ test('a keyless pairing is not admitted and cleanup revokes only the unconfirmed
     const pending = await challenge(pendingBrowser);
     assert.equal(pending.status, 401);
     assert.equal((await pending.json() as { error: { code: string } }).error.code, 'DEVICE_REVOKED');
+    const invitation = await f.fetch('/api/v1/host/pairings', json({ protocol: AUTH_PROTOCOL }, host.accessToken));
+    assert.equal(invitation.status, 200);
+    const grant = await invitation.json() as { code: string };
+    const replacementKeys = await generateP256SigningKeyPair();
+    const replacement = await f.fetch('/api/v1/pairings/claim', json({ protocol: AUTH_PROTOCOL,
+      browser_installation_id: pendingBrowser, device_public_key: await exportPublicJwk(replacementKeys.publicKey),
+      code: grant.code, platform: 'macOS', user_agent: 'test' }));
+    assert.equal(replacement.status, 200);
+    assert.equal((await replacement.json() as { status: string }).status, 'pending_confirmation');
+    assert.equal((await challenge(pendingBrowser)).status, 401, 'new pairing still requires Host confirmation');
   } finally { f.handle.shutdown(); }
 });
 
