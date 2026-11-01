@@ -73,6 +73,11 @@ const CLAUDE_NATIVE_PERMISSION_MARKERS = new Set([
   'dontAsk',
 ]);
 
+/** Preserve the legacy Claude mode preference per Agent, not per executor. */
+export function usesAgentScopedModePreferences(pluginId: Executor): boolean {
+  return pluginId === 'claude';
+}
+
 /** Per-option write routing for Claude catalogs that predate modeKind. This
  *  does not change the legacy session.create compatibility route. */
 export function catalogOptionUsesProviderNativeMode(

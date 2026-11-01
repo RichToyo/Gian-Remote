@@ -2,7 +2,7 @@
   "schema": 1,
   "product": "Gian Remote",
   "sourceRepository": "RichLogic/Gian-Dev",
-  "sourceCommit": "55b26ebe95829202000d24faf22a8fbccb9d3b98",
+  "sourceCommit": "94828e064dd8f80fd8fdfc5977203eb8a95e9019",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -1275,7 +1275,7 @@
     {
       "source": "packages/shared/src/model.ts",
       "path": "packages/shared/src/model.ts",
-      "sha256": "765fceffc2cca0680432af45195a336b8128408a043a8893f9ba1651dd18d9b1"
+      "sha256": "01ac87221b476ec492009fb93abf3e2738829aed7b128337b5d8dc9257f19e60"
     },
     {
       "source": "packages/shared/src/native.ts",
@@ -2592,7 +2592,7 @@
     {
       "path": "packages/shared/src/model.ts",
       "mode": 420,
-      "sha256": "765fceffc2cca0680432af45195a336b8128408a043a8893f9ba1651dd18d9b1"
+      "sha256": "01ac87221b476ec492009fb93abf3e2738829aed7b128337b5d8dc9257f19e60"
     },
     {
       "path": "packages/shared/src/native.ts",
