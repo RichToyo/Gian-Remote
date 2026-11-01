@@ -11,6 +11,7 @@ import {
   type RemoteStateSnapshot,
 } from '@gian/remote-protocol';
 import { MemoryEncryptedHostCache } from '../src/cache/encrypted-cache.js';
+import { serverIdentityFetch } from './server-identity-fetch.js';
 import { MemoryPendingDraftStore } from '../src/cache/pending-drafts.js';
 import { createProductionController, type ProductionController } from '../src/controller/create.js';
 import type { DeviceRelayClientOptions, DeviceRelayLike } from '../src/transport/relay-client.js';
@@ -156,6 +157,7 @@ async function bootedController(options: { draftStore?: MemoryPendingDraftStore 
     identity,
     cache,
     http,
+    fetchFn: serverIdentityFetch,
     autoRestore: false,
     reconnectBaseMs: 20,
     reconnectMaxMs: 40,

@@ -81,33 +81,48 @@ export interface HostCredentialRow {
   previous_refresh_secret_hash: string | null;
 }
 
+export interface ControllerDeviceRow {
+  browser_installation_id: string;
+  public_key_jwk: string;
+  platform: string;
+  created_at: number;
+  revoked_at: number | null;
+}
+
+export type ControllerEnrollmentClaim =
+  | { status: 'claimed'; device: ControllerDeviceRow }
+  | { status: 'invalid' | 'expired' | 'consumed' | 'conflict' };
+
 export class RemoteRepositories {
   constructor(
     readonly db: RemoteDb,
     private readonly now: Clock,
   ) {}
 
-  createEnrollment(token: string, githubAccountId: string, label?: string): { id: string; expires_at: number } {
+  createEnrollment(token: string, label?: string): { id: string; expires_at: number } {
     const id = generateCanonicalId();
     const expiresAt = this.now() + ENROLLMENT_TTL_MS;
     this.db.prepare(`
       INSERT INTO host_enrollments(id, token_hash, label, expires_at, created_at, github_account_id)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, hashSecret(token), label ?? null, expiresAt, this.now(), githubAccountId);
+      VALUES (?, ?, ?, ?, ?, NULL)
+    `).run(id, hashSecret(token), label ?? null, expiresAt, this.now());
     return { id, expires_at: expiresAt };
   }
 
-  claimEnrollment(token: string, host: { name: string; public_key_jwk: string }, githubAccountId: string): HostRow | null {
+  claimEnrollment(token: string, host: { name: string; public_key_jwk: string }): HostRow | null {
     const tokenHash = hashSecret(token);
     return this.db.transaction(() => {
       const enrollment = this.db.prepare(`
-        SELECT id, expires_at, used_at, github_account_id FROM host_enrollments WHERE token_hash = ?
-      `).get(tokenHash) as { id: string; expires_at: number; used_at: number | null; github_account_id: string | null } | undefined;
-      if (!enrollment || enrollment.used_at !== null || enrollment.expires_at <= this.now()
-        || !enrollment.github_account_id || enrollment.github_account_id !== githubAccountId) {
+        SELECT id, expires_at, used_at FROM host_enrollments WHERE token_hash = ?
+      `).get(tokenHash) as { id: string; expires_at: number; used_at: number | null } | undefined;
+      if (!enrollment || enrollment.used_at !== null || enrollment.expires_at <= this.now()) {
         return null;
       }
       const now = this.now();
+      const consumed = this.db.prepare(`
+        UPDATE host_enrollments SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?
+      `).run(now, enrollment.id, now);
+      if (consumed.changes !== 1) return null;
       const existing = this.db.prepare(
         'SELECT * FROM hosts WHERE public_key_jwk = ?',
       ).get(host.public_key_jwk) as HostRow | undefined;
@@ -119,13 +134,162 @@ export class RemoteRepositories {
           INSERT INTO hosts(id, name, public_key_jwk, created_at) VALUES (?, ?, ?, ?)
         `).run(hostId, host.name, host.public_key_jwk, now);
       }
-      this.db.prepare(`
-        UPDATE host_enrollments SET used_at = ?, claimed_host_id = ? WHERE id = ? AND used_at IS NULL
-      `).run(now, hostId, enrollment.id);
-      const updated = this.db.prepare('SELECT changes() AS changes').get() as { changes: number };
-      if (updated.changes !== 1) return null;
+      this.db.prepare('UPDATE host_enrollments SET claimed_host_id = ? WHERE id = ?')
+        .run(hostId, enrollment.id);
       return this.db.prepare('SELECT * FROM hosts WHERE id = ?').get(hostId) as HostRow;
     })();
+  }
+
+  claimControllerEnrollment(token: string, input: {
+    browserInstallationId: string;
+    publicKeyJwk: string;
+    platform: string;
+  }): ControllerEnrollmentClaim {
+    return this.db.transaction(() => {
+      const tokenHash = hashSecret(token);
+      const shared = this.db.prepare(`
+        SELECT id, expires_at, used_at FROM host_enrollments WHERE token_hash = ?
+      `).get(tokenHash) as { id: string; expires_at: number; used_at: number | null } | undefined;
+      const legacy = shared ? undefined : this.db.prepare(`
+        SELECT id, expires_at, used_at FROM controller_enrollments WHERE token_hash = ?
+      `).get(tokenHash) as { id: string; expires_at: number; used_at: number | null } | undefined;
+      const enrollment = shared ?? legacy;
+      if (!enrollment) return { status: 'invalid' as const };
+      if (enrollment.used_at !== null) return { status: 'consumed' as const };
+      if (enrollment.expires_at <= this.now()) return { status: 'expired' as const };
+      if (this.getController(input.browserInstallationId)
+        || this.controllerKeyConflict(input.publicKeyJwk, input.browserInstallationId)) {
+        return { status: 'conflict' as const };
+      }
+      const now = this.now();
+      this.ensureBrowser(input.browserInstallationId);
+      const updated = shared
+        ? this.db.prepare('UPDATE host_enrollments SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?')
+          .run(now, shared.id, now)
+        : this.db.prepare(`UPDATE controller_enrollments
+          SET used_at = ?, claimed_browser_installation_id = ?
+          WHERE id = ? AND used_at IS NULL AND expires_at > ?`)
+          .run(now, input.browserInstallationId, legacy!.id, now);
+      if (updated.changes !== 1) return { status: 'consumed' as const };
+      this.db.prepare(`
+        INSERT INTO controller_devices(browser_installation_id, public_key_jwk, platform, created_at)
+        VALUES (?, ?, ?, ?)
+      `).run(input.browserInstallationId, input.publicKeyJwk, input.platform, now);
+      return { status: 'claimed' as const, device: this.getController(input.browserInstallationId)! };
+    })();
+  }
+
+  getController(browserInstallationId: string): ControllerDeviceRow | undefined {
+    return this.db.prepare('SELECT * FROM controller_devices WHERE browser_installation_id = ?')
+      .get(browserInstallationId) as ControllerDeviceRow | undefined;
+  }
+
+  controllerKeyConflict(publicKeyJwk: string, browserInstallationId: string): boolean {
+    const rows = this.db.prepare(`SELECT public_key_jwk FROM controller_devices
+      WHERE browser_installation_id != ?`).all(browserInstallationId) as Array<{ public_key_jwk: string }>;
+    const fingerprint = pairingKeyHash(publicKeyJwk);
+    return rows.some(row => pairingKeyHash(row.public_key_jwk) === fingerprint);
+  }
+
+  admitHostController(hostId: string, platform: string): 'admitted' | 'revoked' | 'conflict' {
+    const host = this.getHost(hostId);
+    if (!this.keyAdmittedHost(host)) return 'conflict';
+    const existing = this.getController(hostId);
+    if (existing?.revoked_at) return 'revoked';
+    if (existing) {
+      return pairingKeyHash(existing.public_key_jwk) === pairingKeyHash(host!.public_key_jwk) ? 'admitted' : 'conflict';
+    }
+    if (this.controllerKeyConflict(host!.public_key_jwk, hostId)) return 'conflict';
+    this.ensureBrowser(hostId);
+    this.db.prepare(`INSERT INTO controller_devices(browser_installation_id, public_key_jwk, platform, created_at)
+      VALUES (?, ?, ?, ?)`).run(hostId, host!.public_key_jwk, platform, this.now());
+    return 'admitted';
+  }
+
+  revokeController(browserInstallationId: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE controller_devices SET revoked_at = ? WHERE browser_installation_id = ? AND revoked_at IS NULL
+    `).run(this.now(), browserInstallationId);
+    return result.changes === 1;
+  }
+
+  createControllerMigrationChallenge(input: {
+    browserInstallationId: string;
+    hostId: string;
+    publicKeyJwk: string;
+    challenge: string;
+    ttlMs: number;
+  }): { id: string; expires_at: number } {
+    const id = generateCanonicalId();
+    const expiresAt = this.now() + input.ttlMs;
+    this.db.prepare(`
+      INSERT INTO controller_migration_challenges(
+        id, browser_installation_id, host_id, public_key_jwk, challenge_hash, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, input.browserInstallationId, input.hostId, input.publicKeyJwk, hashSecret(input.challenge), expiresAt);
+    return { id, expires_at: expiresAt };
+  }
+
+  getControllerMigrationChallenge(id: string): {
+    id: string;
+    browser_installation_id: string;
+    host_id: string;
+    public_key_jwk: string;
+    expires_at: number;
+    used_at: number | null;
+  } | undefined {
+    return this.db.prepare(`SELECT id, browser_installation_id, host_id, public_key_jwk, expires_at, used_at
+      FROM controller_migration_challenges WHERE id = ?`).get(id) as {
+      id: string;
+      browser_installation_id: string;
+      host_id: string;
+      public_key_jwk: string;
+      expires_at: number;
+      used_at: number | null;
+    } | undefined;
+  }
+
+  consumeControllerMigration(id: string, browserInstallationId: string, hostId: string): boolean {
+    return this.db.transaction(() => {
+      const challenge = this.getControllerMigrationChallenge(id);
+      if (!challenge || challenge.browser_installation_id !== browserInstallationId || challenge.host_id !== hostId
+          || challenge.used_at !== null || challenge.expires_at <= this.now()) return false;
+      const pairing = this.getPairingByBrowserHost(browserInstallationId, hostId);
+      if (!this.keyAdmittedPairing(pairing) || this.getController(browserInstallationId)
+        || this.controllerKeyConflict(challenge.public_key_jwk, browserInstallationId)) return false;
+      const updated = this.db.prepare(`
+        UPDATE controller_migration_challenges SET used_at = ?
+        WHERE id = ? AND used_at IS NULL AND expires_at > ?
+      `).run(this.now(), id, this.now());
+      if (updated.changes !== 1) return false;
+      this.db.prepare(`
+        INSERT INTO controller_devices(browser_installation_id, public_key_jwk, platform, created_at)
+        VALUES (?, ?, ?, ?)
+      `).run(browserInstallationId, challenge.public_key_jwk, pairing!.platform, this.now());
+      return true;
+    })();
+  }
+
+  createControllerChallenge(browserInstallationId: string, challenge: string, ttlMs: number): { id: string; expires_at: number } {
+    const id = generateCanonicalId();
+    const expiresAt = this.now() + ttlMs;
+    this.db.prepare(`
+      INSERT INTO controller_challenges(id, browser_installation_id, challenge_hash, expires_at)
+      VALUES (?, ?, ?, ?)
+    `).run(id, browserInstallationId, hashSecret(challenge), expiresAt);
+    return { id, expires_at: expiresAt };
+  }
+
+  consumeControllerChallenge(id: string, browserInstallationId: string): boolean {
+    const row = this.db.prepare(`
+      SELECT expires_at, used_at, browser_installation_id FROM controller_challenges WHERE id = ?
+    `).get(id) as { expires_at: number; used_at: number | null; browser_installation_id: string } | undefined;
+    if (!row || row.browser_installation_id !== browserInstallationId || row.used_at !== null || row.expires_at <= this.now()) {
+      return false;
+    }
+    const result = this.db.prepare('UPDATE controller_challenges SET used_at = ? WHERE id = ? AND used_at IS NULL')
+      .run(this.now(), id);
+    return result.changes === 1;
   }
 
   getHost(hostId: string): HostRow | undefined {
@@ -336,13 +500,33 @@ export class RemoteRepositories {
     this.db.prepare('UPDATE device_host_pairings SET confirmed_at = ? WHERE id = ? AND confirmed_at IS NULL').run(this.now(), id);
   }
 
+  /** Drop unconfirmed rows that cannot prove a key. Confirmed, revoked, and
+   * key-bearing rows are left untouched, including after a GitHub session ends. */
   revokeExpiredOrUnboundPairings(hostId: string): void {
-    const expired = this.db.prepare(`SELECT p.id FROM device_host_pairings p LEFT JOIN account_peers a
-      ON a.role = 'controller' AND a.installation_id = p.account_peer_id
-      WHERE p.host_id = ? AND p.revoked_at IS NULL
-        AND (p.account_peer_id IS NULL OR (a.delegated_host_id = p.host_id AND a.expires_at <= ?))`)
-      .all(hostId, this.now()) as Array<{ id: string }>;
+    const expired = this.db.prepare(`SELECT id FROM device_host_pairings
+      WHERE host_id = ? AND revoked_at IS NULL AND confirmed_at IS NULL
+        AND (public_key_jwk IS NULL OR length(public_key_jwk) = 0)`)
+      .all(hostId) as Array<{ id: string }>;
     for (const pairing of expired) this.revokePairing(pairing.id);
+  }
+
+  keyAdmittedPairing(pairing: DevicePairingRow | undefined): boolean {
+    if (!pairing || pairing.revoked_at !== null || pairing.confirmed_at === null || !pairing.public_key_jwk) return false;
+    if (this.isRevokedPublicKey(pairing.public_key_jwk)) return false;
+    if (!this.keyAdmittedHost(this.getHost(pairing.host_id))) return false;
+    if (pairing.account_peer_id && this.accountPeerRevoked('controller', pairing.account_peer_id)) return false;
+    return true;
+  }
+
+  keyAdmittedHost(host: HostRow | undefined): boolean {
+    if (!host || host.revoked_at !== null || !host.public_key_jwk) return false;
+    return !host.account_peer_id || !this.accountPeerRevoked('host', host.account_peer_id);
+  }
+
+  private accountPeerRevoked(role: 'host' | 'controller', installationId: string): boolean {
+    const peer = this.db.prepare(`SELECT revoked_at FROM account_peers
+      WHERE role = ? AND installation_id = ?`).get(role, installationId) as { revoked_at: number | null } | undefined;
+    return peer?.revoked_at != null;
   }
 
   deletePairing(id: string): void {
@@ -624,10 +808,14 @@ export class RemoteRepositories {
   cleanupExpired(): void {
     const now = this.now();
     this.db.prepare('DELETE FROM host_enrollments WHERE expires_at <= ? AND used_at IS NOT NULL').run(now - ENROLLMENT_TTL_MS);
+    this.db.prepare('DELETE FROM controller_enrollments WHERE expires_at <= ? AND used_at IS NOT NULL').run(now - ENROLLMENT_TTL_MS);
     this.db.prepare('DELETE FROM enrollment_sessions WHERE expires_at <= ?').run(now);
+    this.db.prepare('DELETE FROM enrollment_password_sessions WHERE expires_at <= ?').run(now);
     this.db.prepare('DELETE FROM pairing_grants WHERE expires_at <= ? AND claimed_at IS NULL').run(now);
     this.db.prepare('DELETE FROM ws_tickets WHERE expires_at <= ?').run(now);
     this.db.prepare('DELETE FROM connector_challenges WHERE expires_at <= ?').run(now);
+    this.db.prepare('DELETE FROM controller_challenges WHERE expires_at <= ?').run(now);
+    this.db.prepare('DELETE FROM controller_migration_challenges WHERE expires_at <= ?').run(now);
     this.db.prepare('DELETE FROM device_challenges WHERE expires_at <= ?').run(now);
     this.db.prepare('DELETE FROM relay_outbox').run();
   }

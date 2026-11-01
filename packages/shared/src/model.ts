@@ -65,6 +65,34 @@ export function catalogModeSemantics(
   return usesNativeExecutorConfig(pluginId) ? 'provider-native' : 'gian-preset';
 }
 
+const CLAUDE_NATIVE_PERMISSION_MARKERS = new Set([
+  'manual',
+  'default',
+  'acceptEdits',
+  'bypassPermissions',
+  'dontAsk',
+]);
+
+/** Per-option write routing for Claude catalogs that predate modeKind. This
+ *  does not change the legacy session.create compatibility route. */
+export function catalogOptionUsesProviderNativeMode(
+  pluginId: Executor,
+  option: {
+    id: string;
+    role?: string;
+    modeKind?: 'gian-preset' | 'provider-native';
+    choices?: Array<{ value: unknown }>;
+  },
+): boolean {
+  if (option.role !== 'approval_mode' && option.role !== 'execution_mode') return false;
+  if (option.modeKind) return option.modeKind === 'provider-native';
+  if (catalogModeSemantics(pluginId, { configOptions: [option] }) === 'provider-native') return true;
+  if (pluginId !== 'claude' || option.id !== 'permission_mode' || option.role !== 'approval_mode') return false;
+  return option.choices?.some(choice => (
+    typeof choice.value === 'string' && CLAUDE_NATIVE_PERMISSION_MARKERS.has(choice.value)
+  )) ?? false;
+}
+
 export type SessionType = 'coding' | 'subtask' | 'manager';
 
 /**

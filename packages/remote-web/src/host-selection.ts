@@ -6,8 +6,10 @@ export interface HostSelectionStore {
 }
 
 /** Device-local preference only; the server's paired Host list is authoritative. */
-export function createHostSelectionStore(): HostSelectionStore {
-  const key = 'gian.remote.selected_host';
+export function createHostSelectionStore(serverOrigin?: string): HostSelectionStore {
+  const key = serverOrigin
+    ? `gian.remote.selected_host:${encodeURIComponent(serverOrigin)}`
+    : 'gian.remote.selected_host';
   let memory: string | null = null;
   return {
     get() {

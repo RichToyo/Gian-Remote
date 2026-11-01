@@ -175,10 +175,11 @@ test('multi-host keys and offline self-revoke write a tombstone', async () => {
   handle.shutdown();
 });
 
-test('me and hosts reject a refresh cookie with the correct family and a wrong secret', async () => {
+test('me and hosts reject a wrong secret but keep confirmed legacy devices without controller admission', async () => {
   const { fetch, handle } = await makeRemoteTestApp();
   const host = await enrollHost(fetch);
   const device = await pairDevice(fetch, host.accessToken, host.hostId);
+  assert.equal(handle.services.repos.getController(device.browserId), undefined);
   const cookie = cookieHeader(device.cookies);
   const familyId = cookie.split('=')[1]?.split('.')[0];
   assert.ok(familyId);
@@ -188,7 +189,9 @@ test('me and hosts reject a refresh cookie with the correct family and a wrong s
   assert.equal(me.status, 401);
   assert.equal(hosts.status, 401);
   const realMe = await fetch('/api/v1/me', { headers: { cookie } });
+  const realHosts = await fetch('/api/v1/hosts', { headers: { cookie } });
   assert.equal(realMe.status, 200);
+  assert.equal(realHosts.status, 200);
   handle.shutdown();
 });
 

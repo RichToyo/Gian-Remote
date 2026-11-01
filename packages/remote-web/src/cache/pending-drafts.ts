@@ -242,50 +242,51 @@ const KEY_STORE = 'keys';
 const DRAFT_STORE = 'drafts';
 
 export class IndexedDbPendingDraftStore extends PendingDraftStoreCore {
+  constructor(private readonly serverOrigin?: string) { super(); }
   static available(): boolean {
     return typeof indexedDB !== 'undefined';
   }
 
   protected override persistBlob(hostId: string, sessionId: string, submissionId: string, blob: SealedBlob): Promise<void> {
     if (!IndexedDbPendingDraftStore.available()) return Promise.resolve();
-    return idbPut(DRAFT_STORE, `${hostId}/${sessionId}/${submissionId}`, blob);
+    return idbPut(DRAFT_STORE, `${hostId}/${sessionId}/${submissionId}`, blob, this.serverOrigin);
   }
 
   protected override persistKey(hostId: string, key: CryptoKey): Promise<void> {
     if (!IndexedDbPendingDraftStore.available()) return Promise.resolve();
-    return idbPut(KEY_STORE, hostId, key);
+    return idbPut(KEY_STORE, hostId, key, this.serverOrigin);
   }
 
   protected override deleteBlob(hostId: string, sessionId: string, submissionId: string): Promise<void> {
     if (!IndexedDbPendingDraftStore.available()) return Promise.resolve();
-    return idbDelete(DRAFT_STORE, `${hostId}/${sessionId}/${submissionId}`);
+    return idbDelete(DRAFT_STORE, `${hostId}/${sessionId}/${submissionId}`, this.serverOrigin);
   }
 
   protected override async dropHostData(hostId: string): Promise<void> {
     if (!IndexedDbPendingDraftStore.available()) return;
-    await idbDelete(KEY_STORE, hostId);
-    await idbDeletePrefix(DRAFT_STORE, `${hostId}/`);
+    await idbDelete(KEY_STORE, hostId, this.serverOrigin);
+    await idbDeletePrefix(DRAFT_STORE, `${hostId}/`, this.serverOrigin);
   }
 
   protected override async dropAllData(): Promise<void> {
     if (!IndexedDbPendingDraftStore.available()) return;
-    await idbClear(KEY_STORE);
-    await idbClear(DRAFT_STORE);
+    await idbClear(KEY_STORE, this.serverOrigin);
+    await idbClear(DRAFT_STORE, this.serverOrigin);
   }
 
   protected override loadKey(hostId: string): Promise<CryptoKey | null> {
     if (!IndexedDbPendingDraftStore.available()) return Promise.resolve(null);
-    return idbGet<CryptoKey>(KEY_STORE, hostId);
+    return idbGet<CryptoKey>(KEY_STORE, hostId, this.serverOrigin);
   }
 
   protected override loadBlob(hostId: string, sessionId: string, submissionId: string): Promise<SealedBlob | null> {
     if (!IndexedDbPendingDraftStore.available()) return Promise.resolve(null);
-    return idbGet<SealedBlob>(DRAFT_STORE, `${hostId}/${sessionId}/${submissionId}`);
+    return idbGet<SealedBlob>(DRAFT_STORE, `${hostId}/${sessionId}/${submissionId}`, this.serverOrigin);
   }
 
   protected override async listPersisted(hostId: string, sessionId: string): Promise<string[]> {
     if (!IndexedDbPendingDraftStore.available()) return [];
-    const keys = await idbKeys(DRAFT_STORE);
+    const keys = await idbKeys(DRAFT_STORE, this.serverOrigin);
     const prefix = `${hostId}/${sessionId}/`;
     return keys
       .filter((key): key is string => typeof key === 'string' && key.startsWith(prefix))
@@ -293,9 +294,13 @@ export class IndexedDbPendingDraftStore extends PendingDraftStoreCore {
   }
 }
 
-function openDb(): Promise<IDBDatabase> {
+export function pendingDraftDatabaseName(serverOrigin?: string): string {
+  return serverOrigin ? `${DB_NAME}:${encodeURIComponent(serverOrigin)}` : DB_NAME;
+}
+
+function openDb(serverOrigin?: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(pendingDraftDatabaseName(serverOrigin), DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(KEY_STORE)) db.createObjectStore(KEY_STORE);
@@ -306,8 +311,8 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-function idbPut(store: string, key: string, value: unknown): Promise<void> {
-  return openDb().then(db => new Promise<void>((resolve, reject) => {
+function idbPut(store: string, key: string, value: unknown, serverOrigin?: string): Promise<void> {
+  return openDb(serverOrigin).then(db => new Promise<void>((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).put(value, key);
     tx.oncomplete = () => { db.close(); resolve(); };
@@ -315,8 +320,8 @@ function idbPut(store: string, key: string, value: unknown): Promise<void> {
   }));
 }
 
-function idbGet<T>(store: string, key: string): Promise<T | null> {
-  return openDb().then(db => new Promise<T | null>((resolve, reject) => {
+function idbGet<T>(store: string, key: string, serverOrigin?: string): Promise<T | null> {
+  return openDb(serverOrigin).then(db => new Promise<T | null>((resolve, reject) => {
     const tx = db.transaction(store, 'readonly');
     const request = tx.objectStore(store).get(key);
     request.onsuccess = () => { db.close(); resolve((request.result as T | undefined) ?? null); };
@@ -324,8 +329,8 @@ function idbGet<T>(store: string, key: string): Promise<T | null> {
   }));
 }
 
-function idbDelete(store: string, key: string): Promise<void> {
-  return openDb().then(db => new Promise<void>((resolve, reject) => {
+function idbDelete(store: string, key: string, serverOrigin?: string): Promise<void> {
+  return openDb(serverOrigin).then(db => new Promise<void>((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).delete(key);
     tx.oncomplete = () => { db.close(); resolve(); };
@@ -333,8 +338,8 @@ function idbDelete(store: string, key: string): Promise<void> {
   }));
 }
 
-function idbDeletePrefix(store: string, prefix: string): Promise<void> {
-  return openDb().then(db => new Promise<void>((resolve, reject) => {
+function idbDeletePrefix(store: string, prefix: string, serverOrigin?: string): Promise<void> {
+  return openDb(serverOrigin).then(db => new Promise<void>((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
     const request = tx.objectStore(store).getAllKeys();
     request.onsuccess = () => {
@@ -347,8 +352,8 @@ function idbDeletePrefix(store: string, prefix: string): Promise<void> {
   }));
 }
 
-function idbKeys(store: string): Promise<IDBValidKey[]> {
-  return openDb().then(db => new Promise<IDBValidKey[]>((resolve, reject) => {
+function idbKeys(store: string, serverOrigin?: string): Promise<IDBValidKey[]> {
+  return openDb(serverOrigin).then(db => new Promise<IDBValidKey[]>((resolve, reject) => {
     const tx = db.transaction(store, 'readonly');
     const request = tx.objectStore(store).getAllKeys();
     request.onsuccess = () => { db.close(); resolve(request.result); };
@@ -356,8 +361,8 @@ function idbKeys(store: string): Promise<IDBValidKey[]> {
   }));
 }
 
-function idbClear(store: string): Promise<void> {
-  return openDb().then(db => new Promise<void>((resolve, reject) => {
+function idbClear(store: string, serverOrigin?: string): Promise<void> {
+  return openDb(serverOrigin).then(db => new Promise<void>((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).clear();
     tx.oncomplete = () => { db.close(); resolve(); };
@@ -365,8 +370,8 @@ function idbClear(store: string): Promise<void> {
   }));
 }
 
-export function createPendingDraftStore(): PendingDraftStore {
+export function createPendingDraftStore(serverOrigin?: string): PendingDraftStore {
   return IndexedDbPendingDraftStore.available()
-    ? new IndexedDbPendingDraftStore()
+    ? new IndexedDbPendingDraftStore(serverOrigin)
     : new MemoryPendingDraftStore();
 }

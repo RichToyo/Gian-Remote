@@ -57,3 +57,4 @@ export * from './search.js';
 export * from './search-text.js';
 export type { RemoteSettingsSnapshot, RemoteSettingsPairing, RemoteSettingsAuditEntry } from './remote-settings.js';
 export * from './translation.js';
+export * from './menubar.js';

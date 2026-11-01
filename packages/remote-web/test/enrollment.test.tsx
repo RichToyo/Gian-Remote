@@ -1,203 +1,105 @@
-import { webcrypto } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { ACCOUNT_PROTOCOL, AUTH_PROTOCOL, generateCanonicalId } from '@gian/remote-protocol';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { AUTH_PROTOCOL, generateCanonicalId } from '@gian/remote-protocol';
 import { EnrollmentPage } from '../src/ui/enrollment.js';
 import { LocaleProvider } from '../src/i18n/index.js';
 
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
+
 const show = () => render(<LocaleProvider locale="en"><EnrollmentPage /></LocaleProvider>);
 
-async function pendingLogin(poll: () => Promise<Response>) {
-  vi.stubGlobal('crypto', webcrypto);
-  const proofs: unknown[] = [];
+type Call = { path: string; body?: Record<string, unknown>; csrf?: string | null };
+
+function installFetch(handler: (call: Call) => Response | Promise<Response>) {
+  const calls: Call[] = [];
   vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
-    const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
-    if (path.endsWith('/account')) return new Response('{}', { status: 401 });
-    if (path.endsWith('/start')) return Response.json({ protocol: ACCOUNT_PROTOCOL,
-      login_id: generateCanonicalId(), user_code: 'USER-CODE', verification_uri: 'https://github.com/login/device',
-      interval_seconds: 5, expires_at: Date.now() + 300_000,
-      challenge: { type: 'gian.remote.account_challenge/1', challenge_id: generateCanonicalId(), nonce: 'test-nonce',
-        server_identity_fingerprint: 'a'.repeat(64), peer: body.peer, expires_at: Date.now() + 300_000 } });
-    if (path.endsWith('/cancel')) return Response.json({ ok: true });
-    proofs.push(body);
-    return poll();
+    const headers = new Headers(init?.headers);
+    const call: Call = {
+      path,
+      body: init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined,
+      csrf: headers.get('x-gian-csrf'),
+    };
+    calls.push(call);
+    return handler(call);
   }));
-  show();
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeEnabled());
-  vi.useFakeTimers();
-  fireEvent.click(screen.getByRole('button', { name: 'Sign in with GitHub' }));
-  await vi.waitFor(async () => {
-    await act(async () => { await Promise.resolve(); });
-    expect(screen.getByText('USER-CODE')).toBeInTheDocument();
-  });
-  return proofs;
+  return calls;
 }
 
-describe('separate enrollment page', () => {
-  it('keeps the authorization code through network errors and Retry-After, then completes the same login', async () => {
-    let calls = 0;
-    const proofs = await pendingLogin(async () => {
-      calls += 1;
-      if (calls === 1) throw new TypeError('network unavailable');
-      if (calls === 2) return new Response('{}', { status: 503, headers: { 'retry-after': '20' } });
-      return Response.json({ protocol: ACCOUNT_PROTOCOL, status: 'authorized', account: { id: '42', login: 'owner' } });
+describe('password enrollment page', () => {
+  it('asks for the deployer password and does not start GitHub or store the CSRF token', async () => {
+    const calls = installFetch(call => {
+      if (call.path.endsWith('/csrf')) return Response.json({ protocol: AUTH_PROTOCOL, csrf_token: 'csrf-raw' });
+      return new Response('{}', { status: 401 });
     });
-    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-    expect(screen.getByText('USER-CODE')).toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveTextContent('Retrying');
-    expect(screen.queryByRole('button', { name: 'Sign in with GitHub' })).toBeNull();
-    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
-    expect(calls).toBe(1);
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(calls).toBe(2);
-    expect(screen.getByText('USER-CODE')).toBeInTheDocument();
-    await act(async () => { await vi.advanceTimersByTimeAsync(19_000); });
-    expect(calls).toBe(2);
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(screen.getByText('@owner')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).toBeNull();
-    expect(proofs).toHaveLength(3);
-    expect(proofs[1]).toEqual(proofs[0]);
-    expect(proofs[2]).toEqual(proofs[0]);
-  });
-
-  it('cancels backoff without another poll or restoring the old code', async () => {
-    const poll = vi.fn(async () => new Response('{}', { status: 503 }));
-    await pendingLogin(poll);
-    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-    expect(poll).toHaveBeenCalledTimes(1);
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cancel' })); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-    expect(poll).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText('USER-CODE')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeEnabled();
-  });
-
-  it('bounds temporary failure retries by the original login deadline', async () => {
-    const poll = vi.fn(async () => new Response('{}', { status: 503 }));
-    await pendingLogin(poll);
-    await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
-    expect(screen.queryByText('USER-CODE')).toBeNull();
-    expect(screen.getByRole('alert')).toHaveTextContent('Expired');
-    const attempts = poll.mock.calls.length;
-    expect(attempts).toBeGreaterThan(0);
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-    expect(poll).toHaveBeenCalledTimes(attempts);
-  });
-
-  it('does not retry an actual authentication rejection', async () => {
-    const poll = vi.fn(async () => new Response('{}', { status: 401 }));
-    await pendingLogin(poll);
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-    expect(poll).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText('USER-CODE')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeEnabled();
-  });
-
-  it('offers login and remote-control navigation without starting pairing or OAuth automatically', async () => {
-    const request = vi.fn(async (_path: string) => new Response('{}', { status: 401 }));
-    vi.stubGlobal('fetch', request);
     show();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeEnabled());
-    expect(request).toHaveBeenCalledTimes(1);
-    expect(request.mock.calls[0]?.[0]).toBe('/api/v1/enrollment/account');
+    const unlock = await screen.findByRole('button', { name: 'Unlock enrollment' });
+    expect(unlock).toBeDisabled();
     expect(screen.getByRole('link', { name: 'Remote control' })).toHaveAttribute('href', '/');
     expect(screen.queryByRole('button', { name: 'Generate enrollment token' })).toBeNull();
-  });
-
-  it('shows the signed-in account, issues a token, expires it and signs out only enrollment', async () => {
-    const paths: string[] = [];
-    const expiresAt = Date.now() + 300_000;
-    vi.stubGlobal('fetch', vi.fn(async (path: string) => {
-      paths.push(path);
-      if (path.endsWith('/tokens')) return Response.json({ protocol: AUTH_PROTOCOL,
-        enrollment_id: generateCanonicalId(), enrollment_token: 'one-time-enrollment-secret', expires_at: expiresAt });
-      return Response.json({ account: { id: '42', login: 'owner' } });
-    }));
-    show();
-    await screen.findByText('@owner');
-    vi.useFakeTimers();
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Generate enrollment token' })); });
-    expect(screen.getByDisplayValue('one-time-enrollment-secret')).toBeInTheDocument();
-    vi.setSystemTime(expiresAt);
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(screen.getByLabelText('Enrollment token')).toHaveValue('');
-    expect(screen.getByText('Expired')).toBeInTheDocument();
-    vi.useRealTimers();
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeEnabled());
-    expect(paths).toEqual(['/api/v1/enrollment/account', '/api/v1/enrollment/tokens', '/api/v1/enrollment/account/logout']);
+    expect(screen.queryByRole('button', { name: 'Sign in with GitHub' })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(calls.map(call => call.path)).toEqual(['/api/v1/enrollment/csrf', '/api/v1/enrollment/session']);
+    expect(calls.some(call => call.path.includes('account') || call.path.includes('github'))).toBe(false);
     expect(localStorage.length).toBe(0);
   });
 
-  it('signs the login challenge and shows allowlist denial without exposing token issuance', async () => {
-    vi.stubGlobal('crypto', webcrypto);
-    const calls: Array<{ path: string; body: Record<string, unknown> }> = [];
-    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
-      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
-      calls.push({ path, body });
-      if (path.endsWith('/account')) return new Response('{}', { status: 401 });
-      if (path.endsWith('/start')) return Response.json({ protocol: ACCOUNT_PROTOCOL,
-        login_id: generateCanonicalId(), user_code: 'USER-CODE', verification_uri: 'https://github.com/login/device',
-        interval_seconds: 5, expires_at: Date.now() + 300_000,
-        challenge: { type: 'gian.remote.account_challenge/1', challenge_id: generateCanonicalId(), nonce: 'test-nonce',
-          server_identity_fingerprint: 'a'.repeat(64), peer: body.peer, expires_at: Date.now() + 300_000 } });
-      return Response.json({ protocol: ACCOUNT_PROTOCOL, status: 'denied' });
-    }));
+  it('rejects a wrong password, a disabled server, and a rate limit without issuing a token', async () => {
+    const calls = installFetch(call => {
+      if (call.path.endsWith('/csrf')) return Response.json({ protocol: AUTH_PROTOCOL, csrf_token: 'csrf-raw' });
+      if (call.path.endsWith('/session')) return new Response('{}', { status: 401 });
+      if (call.body?.password === 'nope') return new Response('{}', { status: 401 });
+      if (call.body?.password === 'limited') return Response.json({ error: { code: 'RATE_LIMITED' } }, { status: 429 });
+      return Response.json({ error: { code: 'ENROLLMENT_DISABLED' } }, { status: 403 });
+    });
     show();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in with GitHub' }));
-    await screen.findByText('USER-CODE');
-    expect(screen.getByRole('link', { name: 'Authorize on GitHub' })).toHaveAttribute('href', 'https://github.com/login/device');
-    // The polling timer already exists; advance wall time by a real interval.
-    await screen.findByRole('alert', {}, { timeout: 7000 });
-    expect(screen.getByRole('alert')).toHaveTextContent('not allowed');
-    const proof = calls.find(call => call.path.endsWith('/poll'))!.body;
-    expect(typeof proof.signature).toBe('string');
-    expect(proof).not.toHaveProperty('access_token');
-    expect(screen.queryByRole('button', { name: 'Generate enrollment token' })).toBeNull();
-  }, 10_000);
-
-  it('opens the GitHub device page in a new tab and offers to copy the user code', async () => {
-    vi.stubGlobal('crypto', webcrypto);
-    const open = vi.fn();
-    vi.stubGlobal('open', open);
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
-    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => {
-      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
-      if (path.endsWith('/account')) return new Response('{}', { status: 401 });
-      if (path.endsWith('/start')) return Response.json({ protocol: ACCOUNT_PROTOCOL,
-        login_id: generateCanonicalId(), user_code: 'WXYZ-1234', verification_uri: 'https://github.com/login/device',
-        interval_seconds: 5, expires_at: Date.now() + 300_000,
-        challenge: { type: 'gian.remote.account_challenge/1', challenge_id: generateCanonicalId(), nonce: 'test-nonce',
-          server_identity_fingerprint: 'a'.repeat(64), peer: body.peer, expires_at: Date.now() + 300_000 } });
-      return Response.json({ protocol: ACCOUNT_PROTOCOL, status: 'pending', interval_seconds: 5 });
-    }));
-    show();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in with GitHub' }));
-
-    await screen.findByText('WXYZ-1234');
-    // The authorization page opens by itself; the button stays as fallback.
-    await waitFor(() => expect(open).toHaveBeenCalledWith('https://github.com/login/device', '_blank', 'noopener,noreferrer'));
-    expect(screen.getByRole('link', { name: 'Authorize on GitHub' })).toHaveAttribute('href', 'https://github.com/login/device');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
-    await screen.findByText('Copied');
-    expect(writeText).toHaveBeenCalledWith('WXYZ-1234');
+    const password = await screen.findByLabelText('Enrollment password');
+    fireEvent.change(password, { target: { value: 'nope' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock enrollment' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('That password was not accepted.');
+    expect(calls.at(-1)?.csrf).toBe('csrf-raw');
+    expect(calls.at(-1)?.body).toEqual({ protocol: AUTH_PROTOCOL, password: 'nope' });
+    fireEvent.change(screen.getByLabelText('Enrollment password'), { target: { value: 'limited' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock enrollment' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Too many attempts');
+    fireEvent.change(screen.getByLabelText('Enrollment password'), { target: { value: 'unset' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock enrollment' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('not configured');
+    expect(calls.some(call => call.path.endsWith('/tokens'))).toBe(false);
+    expect(localStorage.length).toBe(0);
   });
 
-  it('a 503 from the Server reports a temporarily unavailable GitHub, not a generic failure', async () => {
-    vi.stubGlobal('crypto', webcrypto);
-    vi.stubGlobal('fetch', vi.fn(async (path: string) => {
-      if (path.endsWith('/account')) return new Response('{}', { status: 401 });
-      return new Response('{"error":{"code":"UPSTREAM_FAILED"}}', { status: 503 });
-    }));
+  it('issues one token, shows expiry, and signs out only the enrollment session', async () => {
+    let issued = 0;
+    const calls = installFetch(call => {
+      if (call.path.endsWith('/csrf')) return Response.json({ protocol: AUTH_PROTOCOL, csrf_token: 'csrf-raw' });
+      if (call.path.endsWith('/session')) return new Response('{}', { status: 401 });
+      if (call.path.endsWith('/login')) return Response.json({ protocol: AUTH_PROTOCOL, ok: true });
+      if (call.path.endsWith('/logout')) return Response.json({ ok: true });
+      issued += 1;
+      return Response.json({
+        protocol: AUTH_PROTOCOL,
+        enrollment_id: generateCanonicalId(),
+        enrollment_token: issued === 1 ? 'one-time-enrollment-secret' : 'second-secret',
+        expires_at: issued === 1 ? Date.now() + 120_000 : Date.now() - 1,
+      });
+    });
     show();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in with GitHub' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('temporarily unavailable');
+    fireEvent.change(await screen.findByLabelText('Enrollment password'), { target: { value: 'page-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock enrollment' }));
+    await screen.findByText('Enrollment unlocked');
+    fireEvent.click(screen.getByRole('button', { name: 'Generate enrollment token' }));
+    expect(await screen.findByDisplayValue('one-time-enrollment-secret')).toBeInTheDocument();
+    expect(screen.getByText(/Single use/)).toBeInTheDocument();
+    const mint = calls.find(call => call.path.endsWith('/tokens'));
+    expect(mint?.csrf).toBe('csrf-raw');
+    expect(mint?.body).toEqual({ protocol: AUTH_PROTOCOL });
+    expect(mint?.body).not.toHaveProperty('github_account_id');
+    fireEvent.click(screen.getByRole('button', { name: 'Generate another token' }));
+    await waitFor(() => expect(screen.getByLabelText('Enrollment token')).toHaveValue(''));
+    expect(screen.getByText('Expired')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByRole('button', { name: 'Unlock enrollment' })).toBeDisabled();
+    expect(calls.some(call => call.path.includes('account') || call.path.includes('github'))).toBe(false);
+    expect(localStorage.length).toBe(0);
   });
 });

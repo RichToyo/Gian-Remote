@@ -289,6 +289,7 @@ export const PROXY_METHODS = [
   'initialize',
   'catalog.list',
   'catalog.resolve',
+  'account.quota.read',
   'session.create',
   'session.get',
   'session.rename',

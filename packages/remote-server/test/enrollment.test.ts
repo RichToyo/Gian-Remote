@@ -7,26 +7,32 @@ import { ACCOUNT_PROTOCOL, AUTH_PROTOCOL, ENROLLMENT_TTL_MS, exportPublicJwk, ge
 import { cookieHeader, enrollHost, makeRemoteTestApp, pairDevice, authorizeAccount } from './fixture.js';
 import { createEnrollmentFromEnv } from '../src/enrollment-command.js';
 import { parseEnrollmentGithubIds } from '../src/config.js';
+import { hashEnrollmentPassword } from '../src/auth/enrollment-password.js';
 
-const post = (body: unknown, cookie?: string): RequestInit => ({ method: 'POST',
-  headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
+const post = (body: unknown, cookie?: string, csrf?: string): RequestInit => ({ method: 'POST',
+  headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}), ...(csrf ? { 'x-gian-csrf': csrf } : {}) },
+  body: JSON.stringify(body) });
 
-async function enrollmentLogin(f: Awaited<ReturnType<typeof makeRemoteTestApp>>) {
-  const keys = await generateP256SigningKeyPair();
-  const started = accountLoginStartedSchema.parse(await (await f.fetch('/api/v1/enrollment/account/start', post({
-    protocol: ACCOUNT_PROTOCOL, peer: { role: 'controller', installation_id: generateCanonicalId(), public_key: await exportPublicJwk(keys.publicKey) },
-  }))).json());
-  return f.fetch('/api/v1/enrollment/account/poll', post({ protocol: ACCOUNT_PROTOCOL,
-    login_id: started.login_id,
-    signature: await signBytes(keys.privateKey, new TextEncoder().encode(remoteAccountChallengePayload(started.challenge))),
-  }));
+async function enrollmentCsrf(f: Awaited<ReturnType<typeof makeRemoteTestApp>>) {
+  const response = await f.fetch('/api/v1/enrollment/csrf');
+  const body = await response.json() as { csrf_token: string };
+  return { token: body.csrf_token, cookie: cookieHeader(response.headers.getSetCookie()), response };
+}
+
+async function enrollmentLogin(f: Awaited<ReturnType<typeof makeRemoteTestApp>>, password = 'page-secret') {
+  const csrf = await enrollmentCsrf(f);
+  const response = await f.fetch('/api/v1/enrollment/login', post({ protocol: AUTH_PROTOCOL, password }, csrf.cookie, csrf.token));
+  return { response, cookie: cookieHeader([...csrf.response.headers.getSetCookie(), ...response.headers.getSetCookie()]), csrf: csrf.token };
 }
 
 test('GitHub transport failure is unavailable, not bad credentials, and never leaks upstream errors', async () => {
   const f = await makeRemoteTestApp({ config: { githubFetch: async () => { throw new Error('private-upstream-fixture'); } } });
   try {
     const keys = await generateP256SigningKeyPair();
-    const response = await f.fetch('/api/v1/enrollment/account/start', post({ protocol: ACCOUNT_PROTOCOL,
+    const removed = await f.fetch('/api/v1/enrollment/account/start', post({ protocol: ACCOUNT_PROTOCOL,
+      peer: { role: 'controller', installation_id: generateCanonicalId(), public_key: await exportPublicJwk(keys.publicKey) } }));
+    assert.equal(removed.status, 404);
+    const response = await f.fetch('/api/v1/account/start', post({ protocol: ACCOUNT_PROTOCOL,
       peer: { role: 'controller', installation_id: generateCanonicalId(), public_key: await exportPublicJwk(keys.publicKey) } }));
     assert.equal(response.status, 503);
     assert.equal(response.headers.get('retry-after'), '5');
@@ -52,12 +58,12 @@ test('enrollment keeps the same signed login through timeout and rate limiting, 
   } } });
   try {
     const keys = await generateP256SigningKeyPair();
-    const started = accountLoginStartedSchema.parse(await (await f.fetch('/api/v1/enrollment/account/start', post({
+    const started = accountLoginStartedSchema.parse(await (await f.fetch('/api/v1/account/start', post({
       protocol: ACCOUNT_PROTOCOL, peer: { role: 'controller', installation_id: generateCanonicalId(), public_key: await exportPublicJwk(keys.publicKey) },
     }))).json());
     const proof = { protocol: ACCOUNT_PROTOCOL, login_id: started.login_id,
       signature: await signBytes(keys.privateKey, new TextEncoder().encode(remoteAccountChallengePayload(started.challenge))) };
-    const poll = () => f.fetch('/api/v1/enrollment/account/poll', post(proof));
+    const poll = () => f.fetch('/api/v1/account/poll', post(proof));
     const unavailable = await poll();
     assert.equal(unavailable.status, 503);
     assert.equal(unavailable.headers.get('retry-after'), '10');
@@ -76,18 +82,18 @@ test('enrollment keeps the same signed login through timeout and rate limiting, 
     mode = 'authorized';
     const accepted = await poll();
     assert.equal((await accepted.json() as { status: string }).status, 'authorized');
-    assert.ok(accepted.headers.get('set-cookie'));
+    assert.equal(accepted.headers.get('set-cookie'), null);
     assert.equal(polls, 3);
 
     mode = 'timeout';
-    const second = accountLoginStartedSchema.parse(await (await f.fetch('/api/v1/enrollment/account/start', post({
+    const second = accountLoginStartedSchema.parse(await (await f.fetch('/api/v1/account/start', post({
       protocol: ACCOUNT_PROTOCOL, peer: { role: 'controller', installation_id: generateCanonicalId(), public_key: await exportPublicJwk(keys.publicKey) },
     }))).json());
     const secondProof = { protocol: ACCOUNT_PROTOCOL, login_id: second.login_id,
       signature: await signBytes(keys.privateKey, new TextEncoder().encode(remoteAccountChallengePayload(second.challenge))) };
-    assert.equal((await f.fetch('/api/v1/enrollment/account/poll', post(secondProof))).status, 503);
+    assert.equal((await f.fetch('/api/v1/account/poll', post(secondProof))).status, 503);
     f.clock.tick(second.expires_at - f.clock.now);
-    const expired = await f.fetch('/api/v1/enrollment/account/poll', post(secondProof));
+    const expired = await f.fetch('/api/v1/account/poll', post(secondProof));
     assert.equal((await expired.json() as { status: string }).status, 'expired');
     assert.equal(expired.headers.get('set-cookie'), null);
     assert.equal(polls, 4, 'expiry stops retries rather than extending the login');
@@ -100,135 +106,128 @@ test('enrollment allowlist is configurable, numeric, deduplicated and default-de
   for (const invalid of ['owner', '0', '42,', '1.2', '-42']) assert.throws(() => parseEnrollmentGithubIds(invalid));
   const f = await makeRemoteTestApp({ config: { enrollmentGithubIds: [] } });
   try {
-    assert.equal((await f.fetch('/api/v1/enrollment/account/start', post({}))).status, 403);
+    assert.equal((await f.fetch('/api/v1/enrollment/account/start', post({}))).status, 404);
     assert.equal((await f.fetch('/api/v1/admin/host-enrollments', { ...post({ protocol: AUTH_PROTOCOL }),
-      headers: { authorization: 'Bearer admin-test-token', 'content-type': 'application/json' } })).status, 403);
+      headers: { authorization: 'Bearer admin-test-token', 'content-type': 'application/json' } })).status, 200);
   } finally { f.handle.shutdown(); }
 });
 
 test('enrollment page login issues a separate secure cookie, never OAuth or account bearer credentials', async () => {
-  const f = await makeRemoteTestApp();
+  const hash = await hashEnrollmentPassword('page-secret');
+  const f = await makeRemoteTestApp({ config: { enrollmentPasswordHash: hash } });
   try {
     const host = await enrollHost(f.fetch);
     const paired = await pairDevice(f.fetch, host.accessToken, host.hostId);
-    const response = await enrollmentLogin(f);
+    const { response, cookie, csrf } = await enrollmentLogin(f);
     assert.equal(response.status, 200);
     const text = await response.text();
-    assert.equal(JSON.parse(text).status, 'authorized');
-    assert.doesNotMatch(text, /account_token|test-oauth-token|device_code|admin-test-token/);
-    const cookie = cookieHeader(response.headers.getSetCookie());
+    assert.equal(JSON.parse(text).ok, true);
+    assert.doesNotMatch(text, /account_token|test-oauth-token|device_code|admin-test-token|page-secret/);
     assert.match(response.headers.get('set-cookie')!, /HttpOnly/);
     assert.match(response.headers.get('set-cookie')!, /Secure/);
     assert.match(response.headers.get('set-cookie')!, /SameSite=Strict/);
     assert.match(response.headers.get('set-cookie')!, /Path=\/api\/v1\/enrollment/);
     assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }))).status, 401);
-    assert.equal((await f.fetch('/api/v1/enrollment/account', { headers: { cookie } })).status, 200);
-    const issuedResponse = await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie));
+    assert.equal((await f.fetch('/api/v1/enrollment/session', { headers: { cookie } })).status, 200);
+    const issuedResponse = await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie, csrf));
     assert.equal(issuedResponse.status, 200);
     const issued = await issuedResponse.json() as { enrollment_token: string; expires_at: number };
     assert.equal(issued.expires_at, f.clock.now + 300_000);
-    const rows = f.handle.services.db.prepare('SELECT * FROM host_enrollments').all();
+    const rows = f.handle.services.db.prepare('SELECT * FROM host_enrollments').all() as Array<{ github_account_id: string | null }>;
     assert.doesNotMatch(JSON.stringify(rows), new RegExp(issued.enrollment_token));
-    assert.equal((rows[0] as { github_account_id: string }).github_account_id, '42');
-    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL, github_account_id: '99' }, cookie))).status, 401);
+    assert.equal(rows.at(-1)?.github_account_id ?? null, null);
+    const ignored = await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL, github_account_id: '99' }, cookie, csrf));
+    assert.equal(ignored.status, 200);
+    assert.equal((f.handle.services.db.prepare('SELECT github_account_id FROM host_enrollments WHERE github_account_id IS NOT NULL').get()), undefined);
     for (const origin of ['', 'https://attacker.test']) {
-      const response = await f.handle.app.fetch(new Request('https://remote.test/api/v1/enrollment/tokens', {
-        ...post({ protocol: AUTH_PROTOCOL }), headers: { cookie, origin, 'content-type': 'application/json' },
+      const blocked = await f.handle.app.fetch(new Request('https://remote.test/api/v1/enrollment/tokens', {
+        ...post({ protocol: AUTH_PROTOCOL }), headers: { cookie, origin, 'content-type': 'application/json', 'x-gian-csrf': csrf },
       }));
-      assert.equal(response.status, 403);
+      assert.equal(blocked.status, 403);
     }
-    assert.equal((await f.fetch('/api/v1/enrollment/account/logout', post({}, cookie))).status, 200);
-    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie))).status, 401);
+    assert.equal((await f.fetch('/api/v1/enrollment/logout', post({}, cookie, csrf))).status, 200);
+    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie, csrf))).status, 401);
     assert.equal((await f.fetch('/api/v1/me', { headers: { cookie: cookieHeader(paired.cookies) } })).status, 200);
   } finally { f.handle.shutdown(); }
 });
 
-test('enrollment cancellation revokes an in-flight GitHub exchange and cannot establish a session', async () => {
-  let release!: () => void;
-  let entered!: () => void;
-  const blocked = new Promise<void>(resolve => { release = resolve; });
-  const exchanging = new Promise<void>(resolve => { entered = resolve; });
-  const f = await makeRemoteTestApp({ config: { githubFetch: async url => {
-    if (String(url).endsWith('/login/device/code')) return Response.json({ device_code: 'device', user_code: 'CODE',
-      verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 });
-    if (String(url).endsWith('/login/oauth/access_token')) {
-      entered(); await blocked;
-      return Response.json({ access_token: 'test-token', token_type: 'bearer' });
-    }
-    return Response.json({ id: 42, login: 'owner', type: 'User' });
-  } } });
+test('enrollment password rejects the admin token, a missing verifier, CSRF mistakes, and repeated failures', async () => {
+  const hash = await hashEnrollmentPassword('admin-test-token');
+  const f = await makeRemoteTestApp({ config: { enrollmentPasswordHash: hash } });
   try {
+    const csrf = await enrollmentCsrf(f);
+    const attempt = (password: string, header = csrf.token) => f.fetch('/api/v1/enrollment/login',
+      post({ protocol: AUTH_PROTOCOL, password }, csrf.cookie, header));
+    assert.equal((await attempt('admin-test-token')).status, 401);
+    const missing = await makeRemoteTestApp();
+    const missingCsrf = await enrollmentCsrf(missing);
+    const disabled = await missing.fetch('/api/v1/enrollment/login', post({ protocol: AUTH_PROTOCOL, password: 'page-secret' }, missingCsrf.cookie, missingCsrf.token));
+    assert.equal(disabled.status, 403);
+    assert.equal((await disabled.json() as { error: { code: string } }).error.code, 'ENROLLMENT_DISABLED');
+    missing.handle.shutdown();
+    assert.equal((await attempt('page-secret', 'not-the-csrf')).status, 403);
+    for (let i = 0; i < 3; i += 1) assert.equal((await attempt('nope')).status, 401);
+    const locked = await attempt('admin-test-token');
+    assert.equal(locked.status, 429);
+    assert.equal((await locked.json() as { error: { code: string } }).error.code, 'RATE_LIMITED');
+  } finally { f.handle.shutdown(); }
+});
+
+test('web token issuance is rate limited independently of a GitHub allowlist', async () => {
+  const hash = await hashEnrollmentPassword('page-secret');
+  const f = await makeRemoteTestApp({ config: { authRateLimitPerMinute: 1, enrollmentPasswordHash: hash, enrollmentGithubIds: [] } });
+  try {
+    const { cookie, csrf } = await enrollmentLogin(f);
+    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie, csrf))).status, 429);
+  } finally { f.handle.shutdown(); }
+});
+
+test('a changed enrollment password stops later issuance and does not revoke an enrolled Host', async () => {
+  const hash = await hashEnrollmentPassword('page-secret');
+  const f = await makeRemoteTestApp({ config: { enrollmentPasswordHash: hash } });
+  try {
+    const host = await enrollHost(f.fetch);
+    const { cookie, csrf } = await enrollmentLogin(f);
+    const issued = await (await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie, csrf))).json() as { enrollment_token: string };
+    f.handle.services.config.enrollmentPasswordHash = await hashEnrollmentPassword('next-secret');
+    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie, csrf))).status, 401);
     const keys = await generateP256SigningKeyPair();
-    const started = accountLoginStartedSchema.parse(await (await f.fetch('/api/v1/enrollment/account/start', post({
-      protocol: ACCOUNT_PROTOCOL, peer: { role: 'controller', installation_id: generateCanonicalId(), public_key: await exportPublicJwk(keys.publicKey) },
-    }))).json());
-    const proof = { protocol: ACCOUNT_PROTOCOL, login_id: started.login_id,
-      signature: await signBytes(keys.privateKey, new TextEncoder().encode(remoteAccountChallengePayload(started.challenge))) };
-    const pending = f.fetch('/api/v1/enrollment/account/poll', post(proof));
-    await exchanging;
-    assert.equal((await f.fetch('/api/v1/enrollment/account/cancel', post(proof))).status, 200);
-    release();
-    const result = await pending;
-    assert.equal((await result.json() as { status: string }).status, 'expired');
-    assert.equal(result.headers.get('set-cookie'), null);
-    assert.equal(f.handle.services.db.prepare('SELECT * FROM enrollment_sessions').get(), undefined);
-  } finally { release(); f.handle.shutdown(); }
-});
-
-test('web token issuance is rate limited and rechecks the deployment allowlist', async () => {
-  const f = await makeRemoteTestApp({ config: { authRateLimitPerMinute: 1 } });
-  try {
-    const cookie = cookieHeader((await enrollmentLogin(f)).headers.getSetCookie());
-    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie))).status, 200);
-    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie))).status, 429);
-    f.clock.tick(61_000);
-    f.handle.services.config.enrollmentGithubIds = [];
-    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie))).status, 401);
+    const claim = await f.fetch('/api/v1/host-enrollments/claim', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ protocol: AUTH_PROTOCOL, enrollment_token: issued.enrollment_token, host_name: 'Spare',
+        host_version: '0.6.9', host_public_key: await exportPublicJwk(keys.publicKey) }),
+    });
+    assert.equal(claim.status, 200);
+    assert.equal(f.handle.services.repos.getHost(host.hostId)?.revoked_at ?? null, null);
+    assert.equal((await f.fetch('/api/v1/host/heartbeat', post({ protocol: AUTH_PROTOCOL }, undefined, undefined))).status, 401);
+    assert.equal((await f.fetch('/api/v1/host/heartbeat', {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${host.accessToken}` },
+      body: JSON.stringify({ protocol: AUTH_PROTOCOL }),
+    })).status, 200);
   } finally { f.handle.shutdown(); }
 });
 
-test('non-allowlisted account cannot generate tokens and issuer cookie expires on the Server', async () => {
-  const denied = await makeRemoteTestApp({ config: { enrollmentGithubIds: ['99'] } });
+test('a presented GitHub token does not bind or block a one-time enrollment claim', async () => {
+  const hash = await hashEnrollmentPassword('page-secret');
+  const f = await makeRemoteTestApp({ config: { enrollmentPasswordHash: hash } });
   try {
-    const response = await enrollmentLogin(denied);
-    assert.equal((await response.json() as { status: string }).status, 'denied');
-    assert.equal(response.headers.get('set-cookie'), null);
-  } finally { denied.handle.shutdown(); }
-  const f = await makeRemoteTestApp();
-  try {
-    const cookie = cookieHeader((await enrollmentLogin(f)).headers.getSetCookie());
-    f.clock.tick(60 * 60 * 1000);
-    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie))).status, 401);
-  } finally { f.handle.shutdown(); }
-});
-
-test('wrong account cannot claim or consume another account enrollment', async () => {
-  let id = 42;
-  const f = await makeRemoteTestApp({ config: { enrollmentGithubIds: ['42', '99'], githubFetch: async url => {
-    if (String(url).endsWith('/login/device/code')) return Response.json({ device_code: 'device', user_code: 'CODE',
-      verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 });
-    if (String(url).endsWith('/login/oauth/access_token')) return Response.json({ access_token: 'test-token', token_type: 'bearer' });
-    return Response.json({ id, login: 'same-login', type: 'User' });
-  } } });
-  try {
-    const cookie = cookieHeader((await enrollmentLogin(f)).headers.getSetCookie());
-    const issued = await (await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie))).json() as { enrollment_token: string };
-    id = 99;
+    const { cookie, csrf } = await enrollmentLogin(f);
+    const issued = await (await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL, github_account_id: '42' }, cookie, csrf))).json() as { enrollment_token: string };
     const wrongKeys = await generateP256SigningKeyPair();
     const wrong = await authorizeAccount(f.fetch, wrongKeys, 'host');
-    const claim = async (token: string, keys: CryptoKeyPair) => f.fetch('/api/v1/host-enrollments/claim', {
-      ...post({ protocol: AUTH_PROTOCOL, enrollment_token: issued.enrollment_token, host_name: 'Mac',
-        host_version: '0.6.3', host_public_key: await exportPublicJwk(keys.publicKey) }),
+    const claim = async (token: string, keys: CryptoKeyPair, enrollmentToken = issued.enrollment_token) => f.fetch('/api/v1/host-enrollments/claim', {
+      method: 'POST',
       headers: { 'content-type': 'application/json', 'x-gian-account-token': token },
+      body: JSON.stringify({ protocol: AUTH_PROTOCOL, enrollment_token: enrollmentToken, host_name: 'Mac',
+        host_version: '0.6.3', host_public_key: await exportPublicJwk(keys.publicKey) }),
     });
+    assert.equal((await claim(wrong.token, wrongKeys)).status, 200);
     assert.equal((await claim(wrong.token, wrongKeys)).status, 401);
-    assert.equal((f.handle.services.db.prepare('SELECT used_at FROM host_enrollments').get() as { used_at: number | null }).used_at, null);
-    id = 42;
-    const ownerKeys = await generateP256SigningKeyPair();
-    const owner = await authorizeAccount(f.fetch, ownerKeys, 'host');
-    assert.equal((await claim(owner.token, ownerKeys)).status, 200);
-    assert.equal((await claim(owner.token, ownerKeys)).status, 401);
+    const fresh = await (await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie, csrf))).json() as { enrollment_token: string };
+    f.clock.tick(ENROLLMENT_TTL_MS + 1);
+    assert.equal((await claim(wrong.token, await generateP256SigningKeyPair(), fresh.enrollment_token)).status, 401);
   } finally { f.handle.shutdown(); }
 });
 
@@ -247,7 +246,7 @@ test('enrollment command uses only the local admin endpoint and returns a claima
     assert.equal(Date.parse(issued.expires_at), context.clock.now + ENROLLMENT_TTL_MS);
     assert.ok(context.handle.services.repos.claimEnrollment(issued.enrollment_token, {
       name: 'Home Mac', public_key_jwk: 'fixture-key',
-    }, '42'));
+    }));
     assert.doesNotMatch(JSON.stringify(issued), /admin-test-token/);
   } finally { context.handle.shutdown(); }
 });
@@ -477,8 +476,7 @@ test('a GitHub upstream failure answers 503 UPSTREAM_FAILED, never a misleading 
     const keys = await generateP256SigningKeyPair();
     const peer = { role: 'controller', installation_id: generateCanonicalId(), public_key: await exportPublicJwk(keys.publicKey) };
     const enrollment = await f.fetch('/api/v1/enrollment/account/start', post({ protocol: ACCOUNT_PROTOCOL, peer }));
-    assert.equal(enrollment.status, 503);
-    assert.equal((await enrollment.json()).error.code, 'UPSTREAM_FAILED');
+    assert.equal(enrollment.status, 404);
     const general = await f.fetch('/api/v1/account/start', post({ protocol: ACCOUNT_PROTOCOL, peer: { ...peer, role: 'host' } }));
     assert.equal(general.status, 503);
     assert.equal((await general.json()).error.code, 'UPSTREAM_FAILED');

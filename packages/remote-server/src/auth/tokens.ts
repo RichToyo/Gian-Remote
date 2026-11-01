@@ -11,7 +11,8 @@ export interface AccessRecord {
   deviceId?: string;
   familyId?: string;
   accountPeerId?: string;
-  role: 'device' | 'host' | 'admin';
+  installationId?: string;
+  role: 'device' | 'host' | 'controller' | 'admin';
 }
 
 export class TokenStore {
@@ -49,6 +50,12 @@ export class TokenStore {
   revokeDevice(deviceId: string): void {
     for (const [hash, record] of this.#records) {
       if (record.deviceId === deviceId) this.#records.delete(hash);
+    }
+  }
+
+  revokeInstallation(installationId: string): void {
+    for (const [hash, record] of this.#records) {
+      if (record.installationId === installationId) this.#records.delete(hash);
     }
   }
 

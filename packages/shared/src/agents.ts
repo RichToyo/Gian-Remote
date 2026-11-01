@@ -11,8 +11,8 @@ export interface AgentProxyDefaults {
   /** Empty means the Proxy's default session mode. */
   mode: string;
   /** ids of role-less catalog options (e.g. `provider`). Role-bearing options
-   *  stay in the triplet above; ids absent from the current catalog are
-   *  preserved on disk but skipped at apply time. */
+   *  stay in the triplet above. Preferences persist offline and are validated
+   *  against the actual catalog when a new Session is created. */
   options: Record<string, ConfigValue>;
 }
 

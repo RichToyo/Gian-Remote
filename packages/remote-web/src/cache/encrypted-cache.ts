@@ -90,6 +90,8 @@ const BLOB_STORE = 'blobs';
 export class IndexedDbEncryptedHostCache implements EncryptedHostCache {
   private readonly memory = new MemoryEncryptedHostCache();
 
+  constructor(private readonly serverOrigin?: string) {}
+
   static available(): boolean {
     return typeof indexedDB !== 'undefined';
   }
@@ -99,8 +101,8 @@ export class IndexedDbEncryptedHostCache implements EncryptedHostCache {
     const key = this.memory.cryptoKey(hostId);
     const blob = this.memory.sealed(hostId);
     if (key && blob && IndexedDbEncryptedHostCache.available()) {
-      await idbPut(KEY_STORE, hostId, key);
-      await idbPut(BLOB_STORE, hostId, blob);
+      await idbPut(KEY_STORE, hostId, key, this.serverOrigin);
+      await idbPut(BLOB_STORE, hostId, blob, this.serverOrigin);
     }
   }
 
@@ -108,8 +110,8 @@ export class IndexedDbEncryptedHostCache implements EncryptedHostCache {
     const memory = await this.memory.get<T>(hostId);
     if (memory) return memory;
     if (!IndexedDbEncryptedHostCache.available()) return null;
-    const key = await idbGet<CryptoKey>(KEY_STORE, hostId);
-    const blob = await idbGet<SealedBlob>(BLOB_STORE, hostId);
+    const key = await idbGet<CryptoKey>(KEY_STORE, hostId, this.serverOrigin);
+    const blob = await idbGet<SealedBlob>(BLOB_STORE, hostId, this.serverOrigin);
     if (!key || !blob) return null;
     this.memory.hydrate(hostId, key, blob);
     return openWithKey<T>(key, blob);
@@ -118,15 +120,16 @@ export class IndexedDbEncryptedHostCache implements EncryptedHostCache {
   async clear(hostId?: string): Promise<void> {
     await this.memory.clear(hostId);
     if (IndexedDbEncryptedHostCache.available()) {
-      await idbClear(KEY_STORE, hostId);
-      await idbClear(BLOB_STORE, hostId);
+      await idbClear(KEY_STORE, hostId, this.serverOrigin);
+      await idbClear(BLOB_STORE, hostId, this.serverOrigin);
     }
   }
 }
 
-function openDb(): Promise<IDBDatabase> {
+function openDb(serverOrigin?: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const name = serverOrigin ? `${DB_NAME}:${encodeURIComponent(serverOrigin)}` : DB_NAME;
+    const request = indexedDB.open(name, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (db.objectStoreNames.contains('hosts')) db.deleteObjectStore('hosts');
@@ -138,8 +141,8 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-async function idbPut(store: string, hostId: string, value: unknown): Promise<void> {
-  const db = await openDb();
+async function idbPut(store: string, hostId: string, value: unknown, serverOrigin?: string): Promise<void> {
+  const db = await openDb(serverOrigin);
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).put(value, hostId);
@@ -149,8 +152,8 @@ async function idbPut(store: string, hostId: string, value: unknown): Promise<vo
   db.close();
 }
 
-async function idbGet<T>(store: string, hostId: string): Promise<T | null> {
-  const db = await openDb();
+async function idbGet<T>(store: string, hostId: string, serverOrigin?: string): Promise<T | null> {
+  const db = await openDb(serverOrigin);
   const value = await new Promise<T | null>((resolve, reject) => {
     const tx = db.transaction(store, 'readonly');
     const request = tx.objectStore(store).get(hostId);
@@ -161,8 +164,8 @@ async function idbGet<T>(store: string, hostId: string): Promise<T | null> {
   return value;
 }
 
-async function idbClear(store: string, hostId?: string): Promise<void> {
-  const db = await openDb();
+async function idbClear(store: string, hostId: string | undefined, serverOrigin?: string): Promise<void> {
+  const db = await openDb(serverOrigin);
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
     if (hostId) tx.objectStore(store).delete(hostId);
@@ -173,8 +176,8 @@ async function idbClear(store: string, hostId?: string): Promise<void> {
   db.close();
 }
 
-export function createEncryptedHostCache(): EncryptedHostCache {
+export function createEncryptedHostCache(serverOrigin?: string): EncryptedHostCache {
   return IndexedDbEncryptedHostCache.available()
-    ? new IndexedDbEncryptedHostCache()
+    ? new IndexedDbEncryptedHostCache(serverOrigin)
     : new MemoryEncryptedHostCache();
 }

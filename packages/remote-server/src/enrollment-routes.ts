@@ -1,33 +1,48 @@
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import {
-  ACCOUNT_PROTOCOL, AUTH_PROTOCOL, RemoteProtocolError, accountLoginStartSchema,
-  accountLoginPollSchema, adminCreateEnrollmentRequestSchema, parseClosed,
+  AUTH_PROTOCOL, RemoteProtocolError, adminCreateEnrollmentRequestSchema, enrollmentPasswordLoginRequestSchema,
+  parseClosed,
 } from '@gian/remote-protocol';
 import type { RemoteServerConfig } from './config.js';
-import type { RemoteAccountPeers } from './auth/account-peers.js';
-import { RemoteAccountLogin } from './auth/account-login.js';
 import type { RemoteRepositories } from './storage/repositories.js';
-import { hashSecret, randomSecret } from './crypto-hash.js';
+import { hashSecret, hashesEqual, randomSecret } from './crypto-hash.js';
+import { verifyEnrollmentPassword } from './auth/enrollment-password.js';
+import { SlidingWindowLimiter } from './auth/rate-limit.js';
 
-const COOKIE = 'gian_remote_enrollment';
+const SESSION_COOKIE = 'gian_remote_enrollment';
+const CSRF_COOKIE = 'gian_remote_enrollment_csrf';
 const PATH = '/api/v1/enrollment';
 const SESSION_TTL = 60 * 60 * 1000;
+const PASSWORD_FAILURES = 5;
+const PASSWORD_WINDOW_MS = 15 * 60 * 1000;
 
+/** Issuance session for the deployer password. It is not a device credential
+ * and not the deployment admin token. */
 export function installEnrollmentRoutes(app: Hono, config: RemoteServerConfig,
-  accounts: RemoteAccountPeers, repos: RemoteRepositories): () => void {
-  // Separate login exchanges and cookies: signing out here cannot erase a paired browser.
-  const login = new RemoteAccountLogin(accounts, config.now, config.githubClientId, config.githubFetch);
+  repos: RemoteRepositories): () => void {
   const cookieOptions = { path: PATH, secure: true, httpOnly: true, sameSite: 'Strict' as const };
-  const allowed = (id: string) => config.enrollmentGithubIds.includes(id);
+  const failures = new SlidingWindowLimiter(config.now, PASSWORD_FAILURES, PASSWORD_WINDOW_MS);
+  const clientKey = (forwarded: string | undefined) => {
+    if (config.trustedProxy && forwarded) return forwarded.split(',')[0]?.trim() || 'unknown';
+    return 'direct';
+  };
+  const csrfCookie = (token: string) => hashSecret(token);
+  const requireCsrf = (header: string | undefined, cookie: string | undefined) => {
+    if (!header || header.length > 256 || !cookie || !hashesEqual(hashSecret(header), cookie)) {
+      throw new RemoteProtocolError('AUTH_REQUIRED', 'enrollment csrf required');
+    }
+  };
   const requireSession = (token: string | undefined) => {
-    if (!token || token.length > 256) throw new RemoteProtocolError('AUTH_REQUIRED', 'enrollment login required');
-    const row = repos.db.prepare('SELECT account_peer_id FROM enrollment_sessions WHERE token_hash = ? AND expires_at > ?')
-      .get(hashSecret(token), config.now()) as { account_peer_id: string } | undefined;
-    if (!row) throw new RemoteProtocolError('AUTH_REQUIRED', 'enrollment login required');
-    const peer = accounts.requirePeer('controller', row.account_peer_id);
-    if (peer.delegated_host_id || !allowed(peer.github_account_id)) throw new RemoteProtocolError('AUTH_REQUIRED', 'enrollment access denied');
-    return peer;
+    const generation = config.enrollmentPasswordHash ? hashSecret(config.enrollmentPasswordHash) : '';
+    if (!token || token.length > 256 || !generation) {
+      throw new RemoteProtocolError('AUTH_REQUIRED', 'enrollment login required');
+    }
+    const row = repos.db.prepare(`SELECT password_generation FROM enrollment_password_sessions
+      WHERE token_hash = ? AND expires_at > ?`).get(hashSecret(token), config.now()) as { password_generation: string } | undefined;
+    if (!row || !hashesEqual(row.password_generation, generation)) {
+      throw new RemoteProtocolError('AUTH_REQUIRED', 'enrollment login required');
+    }
   };
   app.use(`${PATH}/*`, async (context, next) => {
     context.header('Cache-Control', 'no-store');
@@ -36,57 +51,63 @@ export function installEnrollmentRoutes(app: Hono, config: RemoteServerConfig,
     }
     await next();
   });
-  app.post(`${PATH}/account/start`, async context => {
-    if (!config.enrollmentGithubIds.length) return context.json({ error: { code: 'ENROLLMENT_DISABLED' } }, 403);
-    const body = parseClosed(accountLoginStartSchema, await context.req.json());
-    if (body.peer.role !== 'controller') throw new RemoteProtocolError('AUTH_REQUIRED', 'invalid enrollment peer');
-    return context.json(await login.start(body.peer));
-  });
-  app.post(`${PATH}/account/poll`, async context => {
-    const body = parseClosed(accountLoginPollSchema, await context.req.json());
-    const result = await login.poll(body.login_id, body.signature);
-    if (result.status !== 'authorized') return context.json(result);
-    if (!allowed(result.account.id)) {
-      accounts.revoke(result.role, result.installation_id);
-      return context.json({ protocol: ACCOUNT_PROTOCOL, status: 'denied' });
-    }
-    accounts.requireToken(result.account_token, 'controller');
+  app.get(`${PATH}/csrf`, context => {
     const token = randomSecret();
-    repos.db.transaction(() => {
-      repos.db.prepare('DELETE FROM enrollment_sessions WHERE expires_at <= ? OR account_peer_id = ?')
-        .run(config.now(), result.installation_id);
-      repos.db.prepare('INSERT INTO enrollment_sessions(token_hash, account_peer_id, expires_at) VALUES (?, ?, ?)')
-        .run(hashSecret(token), result.installation_id, config.now() + SESSION_TTL);
-    })();
-    setCookie(context, COOKIE, token, { ...cookieOptions, maxAge: SESSION_TTL / 1000 });
-    return context.json({ protocol: ACCOUNT_PROTOCOL, status: 'authorized', account: result.account });
+    setCookie(context, CSRF_COOKIE, csrfCookie(token), cookieOptions);
+    return context.json({ protocol: AUTH_PROTOCOL, csrf_token: token });
   });
-  app.get(`${PATH}/account`, context => {
-    const peer = requireSession(getCookie(context, COOKIE));
-    return context.json({ account: { id: peer.github_account_id, login: peer.github_login } });
+  app.post(`${PATH}/login`, async context => {
+    const ip = clientKey(context.req.header('x-forwarded-for'));
+    const failureKey = `login:${ip}`;
+    if (failures.blocked(failureKey)) return context.json({ error: { code: 'RATE_LIMITED' } }, 429);
+    if (!config.enrollmentPasswordHash) return context.json({ error: { code: 'ENROLLMENT_DISABLED' } }, 403);
+    try { requireCsrf(context.req.header('x-gian-csrf'), getCookie(context, CSRF_COOKIE)); }
+    catch {
+      failures.record(failureKey);
+      return context.json({ error: { code: 'AUTH_REQUIRED' } }, 403);
+    }
+    const body = parseClosed(enrollmentPasswordLoginRequestSchema, await context.req.json());
+    // The deployment admin token is not the page password, even if a deployer
+    // stored a verifier for that same string.
+    const presentedAdmin = hashesEqual(hashSecret(body.password), hashSecret(config.adminToken));
+    const matches = !presentedAdmin && await verifyEnrollmentPassword(body.password, config.enrollmentPasswordHash);
+    if (!matches) {
+      failures.record(failureKey);
+      return context.json({ error: { code: 'AUTH_REQUIRED' } }, 401);
+    }
+    const token = randomSecret();
+    const generation = hashSecret(config.enrollmentPasswordHash);
+    repos.db.prepare('DELETE FROM enrollment_password_sessions WHERE expires_at <= ?').run(config.now());
+    repos.db.prepare(`INSERT INTO enrollment_password_sessions(token_hash, password_generation, expires_at)
+      VALUES (?, ?, ?)`).run(hashSecret(token), generation, config.now() + SESSION_TTL);
+    setCookie(context, SESSION_COOKIE, token, { ...cookieOptions, maxAge: SESSION_TTL / 1000 });
+    return context.json({ protocol: AUTH_PROTOCOL, ok: true });
   });
-  app.post(`${PATH}/account/cancel`, async context => {
-    const body = parseClosed(accountLoginPollSchema, await context.req.json());
-    await login.cancel(body.login_id, body.signature);
-    deleteCookie(context, COOKIE, cookieOptions);
+  app.get(`${PATH}/session`, context => {
+    requireSession(getCookie(context, SESSION_COOKIE));
+    return context.json({ protocol: AUTH_PROTOCOL, ok: true });
+  });
+  app.post(`${PATH}/logout`, context => {
+    try { requireCsrf(context.req.header('x-gian-csrf'), getCookie(context, CSRF_COOKIE)); }
+    catch { return context.json({ error: { code: 'AUTH_REQUIRED' } }, 403); }
+    const token = getCookie(context, SESSION_COOKIE);
+    if (token) repos.db.prepare('DELETE FROM enrollment_password_sessions WHERE token_hash = ?').run(hashSecret(token));
+    deleteCookie(context, SESSION_COOKIE, cookieOptions);
     return context.json({ ok: true });
   });
-  app.post(`${PATH}/account/logout`, context => {
-    const token = getCookie(context, COOKIE);
-    if (token) repos.db.prepare('DELETE FROM enrollment_sessions WHERE token_hash = ?').run(hashSecret(token));
-    deleteCookie(context, COOKIE, cookieOptions);
-    return context.json({ ok: true });
-  });
-  app.post(`${PATH}/tokens`, async context => {
-    const peer = requireSession(getCookie(context, COOKIE));
+  const mint = async (context: Context) => {
+    try { requireCsrf(context.req.header('x-gian-csrf'), getCookie(context, CSRF_COOKIE)); }
+    catch { return context.json({ error: { code: 'AUTH_REQUIRED' } }, 403); }
+    requireSession(getCookie(context, SESSION_COOKIE));
     const body = parseClosed(adminCreateEnrollmentRequestSchema, await context.req.json());
-    if (body.github_account_id && body.github_account_id !== peer.github_account_id) {
-      throw new RemoteProtocolError('AUTH_REQUIRED', 'account mismatch');
-    }
+    // github_account_id is accepted so older page clients still parse, and ignored.
+    void body.github_account_id;
     const token = randomSecret();
-    const created = repos.createEnrollment(token, peer.github_account_id, body.label);
+    const created = repos.createEnrollment(token, body.label);
     return context.json({ protocol: AUTH_PROTOCOL, enrollment_id: created.id,
       enrollment_token: token, expires_at: created.expires_at });
-  });
-  return () => login.close();
+  };
+  app.post(`${PATH}/tokens`, mint);
+  app.post(`${PATH}/controller-tokens`, mint);
+  return () => {};
 }

@@ -17,6 +17,8 @@ export async function createEnrollmentFromEnv(
   const port = Number(env.GIAN_REMOTE_PORT?.trim() || '8787');
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid GIAN_REMOTE_PORT');
   if (label !== undefined && (!label.trim() || label.trim().length > MAX_NAME_CHARS)) throw new Error('Invalid enrollment label');
+  // Old scripts may still pass --account-id. The server accepts the field and
+  // does not bind the one-time code to that GitHub account.
   if (githubAccountId !== undefined) githubAccountIdSchema.parse(githubAccountId);
   // The admin endpoint is deliberately blocked by the public reverse proxy.
   const host = env.GIAN_REMOTE_HOST?.trim();

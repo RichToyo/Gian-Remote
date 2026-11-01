@@ -34,6 +34,8 @@ export interface RemoteServerConfig {
   githubClientId?: string;
   githubFetch?: typeof fetch;
   enrollmentGithubIds: string[];
+  /** scrypt verifier for /enrollment. Absent means issuance is disabled. */
+  enrollmentPasswordHash?: string;
 }
 
 export function createConfig(overrides: Partial<RemoteServerConfig> & Pick<RemoteServerConfig, 'dataDir' | 'publicOrigin' | 'adminToken'>): RemoteServerConfig {
@@ -59,6 +61,7 @@ export function createConfig(overrides: Partial<RemoteServerConfig> & Pick<Remot
     githubClientId: overrides.githubClientId,
     githubFetch: overrides.githubFetch,
     enrollmentGithubIds: parseEnrollmentGithubIds((overrides.enrollmentGithubIds ?? []).join(',')),
+    enrollmentPasswordHash: overrides.enrollmentPasswordHash,
   };
 }
 

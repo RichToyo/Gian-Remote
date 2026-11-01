@@ -18,6 +18,7 @@ import {
 import type { Clock } from '../clock.js';
 import { hashSecret, hashesEqual, randomSecret } from '../crypto-hash.js';
 import type { RemoteDb } from '../storage/db.js';
+import { pairingKeyHash } from '../storage/repositories.js';
 import { GitHubIdentityVerifier } from './github-identity.js';
 import { verifyP256Signature } from './signatures.js';
 
@@ -253,13 +254,47 @@ export class RemoteAccountPeers {
       .run(account.installation_id, pairingId);
   }
 
+  /** End the GitHub API session only. Host enrollment, confirmed pairings,
+   * and device refresh families stay. */
+  endAccountSession(role: RemoteAccountPeer['role'], installationId: string): void {
+    this.assertOpen();
+    parseClosed(remotePeerRoleSchema, role, 'AUTH_REQUIRED');
+    parseClosed(canonicalIdSchema, installationId, 'AUTH_REQUIRED');
+    this.db.transaction(() => {
+      this.db.prepare(`UPDATE account_peers SET token_hash = ?, expires_at = ?
+        WHERE role = ? AND installation_id = ? AND revoked_at IS NULL`)
+        .run(hashSecret(randomSecret()), this.now(), role, installationId);
+      this.db.prepare('DELETE FROM account_challenges WHERE role = ? AND installation_id = ?')
+        .run(role, installationId);
+    })();
+  }
+
   revoke(role: RemoteAccountPeer['role'], installationId: string): void {
     this.assertOpen();
     parseClosed(remotePeerRoleSchema, role, 'AUTH_REQUIRED');
     parseClosed(canonicalIdSchema, installationId, 'AUTH_REQUIRED');
     this.db.transaction(() => {
+      const now = this.now();
       this.db.prepare('UPDATE account_peers SET revoked_at = ? WHERE role = ? AND installation_id = ?')
-        .run(this.now(), role, installationId);
+        .run(now, role, installationId);
+      if (role === 'host') {
+        this.db.prepare('UPDATE hosts SET revoked_at = ? WHERE account_peer_id = ? AND revoked_at IS NULL')
+          .run(now, installationId);
+      } else {
+        const pairings = this.db.prepare(`SELECT * FROM device_host_pairings
+          WHERE account_peer_id = ? AND revoked_at IS NULL`).all(installationId) as Array<{
+            id: string; host_id: string; public_key_jwk: string;
+          }>;
+        for (const pairing of pairings) {
+          this.db.prepare('UPDATE device_host_pairings SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
+            .run(now, pairing.id);
+          this.db.prepare(`INSERT INTO revoked_pairing_keys
+            (public_key_hash, public_key_jwk, host_id, device_id, revoked_at)
+            VALUES (?, ?, ?, ?, ?) ON CONFLICT(public_key_hash) DO NOTHING`)
+            .run(pairingKeyHash(pairing.public_key_jwk), pairing.public_key_jwk,
+              pairing.host_id, pairing.id, now);
+        }
+      }
       this.db.prepare('DELETE FROM account_challenges WHERE role = ? AND installation_id = ?')
         .run(role, installationId);
     })();

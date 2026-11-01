@@ -1,5 +1,17 @@
 # Gian Remote Changelog
 
+## [1.5.0] - 2026-11-01
+
+- Admit Hosts and native controllers with short-lived enrollment codes and
+  device-key proofs without requiring a GitHub account. Host pairing and
+  explicit Host confirmation remain separate authorization steps.
+- Verify and pin the Remote Server identity, isolate browser state by Server
+  origin, and preserve confirmed pairings across GitHub account logout.
+- Reject revoked controllers on protected reads and preserve compatible
+  existing pairings. This release includes Server migrations 007 and 008.
+- Consume the separately published Remote Protocol 1.5.0 package. Publishing
+  the offline image does not deploy or restart an existing Remote Server.
+
 ## [1.4.2] - 2026-10-22
 
 - Offline deployment works across classic Docker and containerd image stores,

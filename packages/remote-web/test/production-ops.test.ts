@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  ACCOUNT_PROTOCOL,
   AUTH_PROTOCOL,
   MAX_FILE_PREVIEW_BYTES,
   RemoteProtocolError,
@@ -13,6 +14,7 @@ import {
   type RemoteStateSnapshot,
 } from '@gian/remote-protocol';
 import { MemoryEncryptedHostCache, type EncryptedHostCache } from '../src/cache/encrypted-cache.js';
+import { serverIdentityFetch } from './server-identity-fetch.js';
 import { createProductionController } from '../src/controller/create.js';
 import {
   READ_COMMAND_TIMEOUT_MS,
@@ -82,6 +84,54 @@ describe('production controller operations', () => {
       expect(controller.state.account?.status).toBe('signed_out');
       expect(requests.some(path => path.startsWith('/api/v1/account/'))).toBe(false);
     } finally { controller.close(); }
+  });
+  it('replaces only the GitHub bearer on account completion and keeps Remote until explicit sign-out', async () => {
+    let restoreReads = 0;
+    const { identity, cache, controller } = await pairedController({
+      createRelay: input => new FakeRelay(input),
+      beforeGet: async () => { restoreReads += 1; },
+    });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => controller.state.connection.kind === 'online');
+      controller.actions.startGitHubLogin!();
+      await viWait(async () => controller.state.account?.userCode === 'CODE');
+      controller.actions.pollGitHubLogin!();
+      await viWait(async () => controller.state.account?.status === 'signed_in');
+      expect(restoreReads).toBe(0);
+      expect(controller.state.connection).toEqual({ kind: 'online' });
+      expect(controller.state.currentHostId).toBe(hostId);
+      expect(await identity.listHostIds()).toEqual([hostId]);
+      expect(await cache.get(hostId)).not.toBeNull();
+      expect((await cache.get('__account__') as { account_token?: string }).account_token).toBe('new-account-token');
+
+      controller.actions.logoutBrowser();
+      await viWait(async () => (await identity.listHostIds()).length === 0 && (await cache.get(hostId)) === null);
+      expect(controller.state.connection).toEqual({ kind: 'browser_offline' });
+    } finally { controller.close(); }
+  });
+  it('does not authenticate a stale Host after delayed server identity discovery', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let first = true;
+    const challenges: string[] = [];
+    const { controller } = await pairedController({
+      identityFetch: async (input, init) => {
+        if (first) { first = false; await gate; }
+        return serverIdentityFetch(input, init);
+      },
+      createRelay: input => new FakeRelay(input),
+      beforeRequest(path, body) {
+        if (path === '/api/v1/sessions/device-challenge') challenges.push(String((body as { host_id?: string }).host_id));
+      },
+    });
+    try {
+      controller.actions.challengeLogin(hostId);
+      controller.actions.challengeLogin(hostB);
+      release();
+      await viWait(async () => controller.state.connection.kind === 'online' && controller.state.currentHostId === hostB);
+      expect(challenges).toEqual([hostB]);
+    } finally { release(); controller.close(); }
   });
   it('resolves relative paths before preview and reports an error even when the resolved label changed', async () => {
     const relays: FakeRelay[] = [];
@@ -2539,6 +2589,7 @@ async function pairedController(options: {
   extraHosts?: string[];
   directoryHostIds?: string[];
   autoRestore?: boolean;
+  identityFetch?: typeof fetch;
   cache?: EncryptedHostCache;
   meFails?: boolean;
   del?: RemoteHttpClient['del'];
@@ -2573,6 +2624,25 @@ async function pairedController(options: {
     async request(path, body, token) {
       await options.beforeRequest?.(path, body);
       options.onRequest?.(path);
+      if (path === '/api/v1/account/start') {
+        const peer = (body as { peer: { role: 'controller'; installation_id: string; public_key: { kty: 'EC'; crv: 'P-256'; x: string; y: string } } }).peer;
+        const loginId = generateCanonicalId();
+        return {
+          protocol: ACCOUNT_PROTOCOL, login_id: loginId,
+          challenge: { type: 'gian.remote.account_challenge/1', challenge_id: loginId,
+            nonce: 'account-nonce', server_identity_fingerprint: 'a'.repeat(64), peer,
+            expires_at: Date.now() + 60_000 },
+          user_code: 'CODE', verification_uri: 'https://github.com/login/device',
+          expires_at: Date.now() + 60_000, interval_seconds: 5,
+        };
+      }
+      if (path === '/api/v1/account/poll') {
+        return { protocol: ACCOUNT_PROTOCOL, status: 'authorized',
+          account: { provider: 'github', id: '99', login: 'new-owner' },
+          account_token: 'new-account-token', installation_id: generateCanonicalId(), role: 'controller',
+          expires_at: Date.now() + 60_000 };
+      }
+      if (path === '/api/v1/account/logout') return { protocol: ACCOUNT_PROTOCOL, ok: true };
       if (path === '/api/v1/pairings/claim' && options.pairingHost) {
         pairClaimed = true;
         return { protocol: AUTH_PROTOCOL, pairing_id: generateCanonicalId(), host_id: options.pairingHost,
@@ -2644,6 +2714,7 @@ async function pairedController(options: {
     identity,
     cache,
     http,
+    fetchFn: options.identityFetch ?? serverIdentityFetch,
     autoRestore: options.autoRestore ?? false,
     createRelay: options.createRelay,
     readStallMs: options.readStallMs,

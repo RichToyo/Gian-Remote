@@ -10,15 +10,25 @@ export class SlidingWindowLimiter {
   ) {}
 
   allow(key: string): boolean {
-    const now = this.now();
-    const cutoff = now - this.windowMs;
-    const next = (this.#hits.get(key) ?? []).filter((stamp) => stamp > cutoff);
-    if (next.length >= this.limit) {
-      this.#hits.set(key, next);
-      return false;
-    }
-    next.push(now);
-    this.#hits.set(key, next);
+    if (this.blocked(key)) return false;
+    this.record(key);
     return true;
+  }
+
+  blocked(key: string): boolean {
+    return this.prune(key).length >= this.limit;
+  }
+
+  record(key: string): void {
+    const next = this.prune(key);
+    next.push(this.now());
+    this.#hits.set(key, next);
+  }
+
+  private prune(key: string): number[] {
+    const cutoff = this.now() - this.windowMs;
+    const next = (this.#hits.get(key) ?? []).filter((stamp) => stamp > cutoff);
+    this.#hits.set(key, next);
+    return next;
   }
 }

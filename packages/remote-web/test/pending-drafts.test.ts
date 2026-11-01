@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryPendingDraftStore, type PendingDraftPayload } from '../src/cache/pending-drafts.js';
+import { MemoryPendingDraftStore, pendingDraftDatabaseName, type PendingDraftPayload } from '../src/cache/pending-drafts.js';
 
 const hostId = '11111111-1111-4111-8111-111111111111';
 const sessionA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -124,5 +124,11 @@ describe('pending draft store (encrypted, Host-scoped)', () => {
     ]);
     expect((await store.get(hostId, sessionA, 'sub-1'))?.draft.text).toBe('A');
     expect((await store.get(hostId, sessionB, 'sub-2'))?.draft.text).toBe('B');
+  });
+
+  it('uses independent persistent database names per Desktop Server origin', () => {
+    expect(pendingDraftDatabaseName()).toBe('gian-remote-pending-drafts');
+    expect(pendingDraftDatabaseName('https://a.remote.test')).not.toBe(pendingDraftDatabaseName('https://b.remote.test'));
+    expect(pendingDraftDatabaseName('https://a.remote.test')).toBe(pendingDraftDatabaseName('https://a.remote.test'));
   });
 });

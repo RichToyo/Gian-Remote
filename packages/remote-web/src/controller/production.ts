@@ -53,6 +53,7 @@ import {
   type BrowserIdentityStore,
 } from '../transport/identity.js';
 import { createRemoteHttpClient, type RemoteHttpClient } from '../transport/http.js';
+import { identityPinRejected, pinDiscoveredServer } from '../transport/server-pin.js';
 import {
   DeviceRelayClient,
   type DeviceRelayFactory,
@@ -131,6 +132,9 @@ interface HostAuthSession {
 export interface ProductionControllerOptions {
   baseUrl: string;
   publicOrigin: string;
+  /** Explicit persistence partition for an embedded native client. Ordinary
+   * same-origin Remote Web leaves this unset for storage compatibility. */
+  storageScope?: string;
   wsUrl?: string;
   fetchFn?: typeof fetch;
   http?: RemoteHttpClient;
@@ -175,8 +179,8 @@ export function nextPairingPollDelay(delayMs: number): number {
 }
 
 export function createProductionController(options: ProductionControllerOptions): ProductionController {
-  const identity = options.identity ?? createBrowserIdentityStore();
-  const cache = options.cache ?? createEncryptedHostCache();
+  const identity = options.identity ?? createBrowserIdentityStore(options.storageScope);
+  const cache = options.cache ?? createEncryptedHostCache(options.storageScope);
   const http = options.http ?? createRemoteHttpClient({
     baseUrl: options.baseUrl,
     origin: options.publicOrigin,
@@ -254,7 +258,7 @@ export function createProductionController(options: ProductionControllerOptions)
   let accountPolling = false;
   let accountGeneration = 0;
   let fileGeneration = 0;
-  const hostSelection = options.hostSelection ?? createHostSelectionStore();
+  const hostSelection = options.hostSelection ?? createHostSelectionStore(options.storageScope);
   let navigationGeneration = 0;
   let pairingReturnHostId: string | null = null;
   let qrNonce = options.pairingNonce;
@@ -918,7 +922,7 @@ export function createProductionController(options: ProductionControllerOptions)
 
   /** Encrypted, Host-scoped pending-draft persistence (F2): never plaintext
    *  localStorage, and cleared on dispatch, reclaim, logout and revoke. */
-  const translationDraftStore = options.draftStore ?? createPendingDraftStore();
+  const translationDraftStore = options.draftStore ?? createPendingDraftStore(options.storageScope);
   /** Echoes awaiting their canonical user item, per session: delivery-id
    *  match preferred, exact-text fallback only after the gate finished. */
   const adoptableEchoes = new Map<string, { echoId: string; deliveryId?: string; text: string; ts: number }>();
@@ -2052,7 +2056,7 @@ export function createProductionController(options: ProductionControllerOptions)
       }
       if (relayHostId === hostId) retireHostSession(hostId, 'disconnected');
       else markDisconnectedPending(hostId);
-      if (!devicePairingWasLost(error)) scheduleReconnect(hostId);
+      if (!devicePairingWasLost(error) && !identityPinRejected(error)) scheduleReconnect(hostId);
       throw error;
     } finally {
       if (connectInFlight === run) connectInFlight = null;
@@ -2064,6 +2068,8 @@ export function createProductionController(options: ProductionControllerOptions)
     cancelReconnect();
     update({ connection: { kind: 'resyncing', synced: 0, total: 1 }, currentHostId: hostId,
       connectionPhase: 'auth', connectionFailed: false });
+    await pinDiscoveredServer({ origin: options.publicOrigin, storageScope: options.storageScope, fetchFn: options.fetchFn });
+    if (closed || epoch !== hostRuntime(hostId).epoch) return;
     const hostIdentity = await identity.hostIdentity(hostId);
     let session = await authenticateHost(hostId);
     if (closed || epoch !== hostRuntime(hostId).epoch) return;
@@ -2166,6 +2172,8 @@ export function createProductionController(options: ProductionControllerOptions)
     let browserId: string;
     let claimed;
     try {
+      await pinDiscoveredServer({ origin: options.publicOrigin, storageScope: options.storageScope, fetchFn: options.fetchFn });
+      if (!current()) return;
       browserId = await identity.browserInstallationId();
       if (!current()) return;
       const pendingIdentity = await identity.createPending();
@@ -2375,26 +2383,10 @@ export function createProductionController(options: ProductionControllerOptions)
 
   async function acceptAccount(result: Extract<AccountLoginResult, { status: 'authorized' }>): Promise<void> {
     const generation = accountGeneration;
-    if (!accountSession) {
-      const stored = accountLoginResultSchema.safeParse(await cache.get('__account__'));
-      if (closed || generation !== accountGeneration) return;
-      if (stored.success && stored.data.status === 'authorized') accountSession = stored.data;
-    }
-    const previous = accountSession;
-    ++navigationGeneration;
-    ++pairingGeneration;
-    ++fileGeneration;
-    cancelReconnect();
-    if (pollTimer) clearTimeout(pollTimer);
-    if (state.currentHostId) retireHostSession(state.currentHostId, 'replaced');
-    hostSessions.clear();
-    if (accountSession && accountSession.account.id !== result.account.id) {
-      await cache.clear();
-      await identity.clearAll();
-      hostSessions.clear(); hostDrafts.clear();
-      update({ ...emptyUiState(), account: { status: 'signed_out' } });
-    }
     if (closed || generation !== accountGeneration) return;
+    const previous = accountSession;
+    // GitHub completion replaces only the account bearer. It does not drop
+    // pairings, device keys, or the live Remote connection.
     accountSession = result;
     http.setAccountToken?.(result.account_token);
     await cache.put('__account__', result);
@@ -2403,7 +2395,6 @@ export function createProductionController(options: ProductionControllerOptions)
     }
     if (closed || generation !== accountGeneration) return;
     update({ account: { status: 'signed_in', login: result.account.login } });
-    if (options.autoRestore !== false && !qrNonce) requestRestore();
   }
 
   const actions: RemoteUiActions = {

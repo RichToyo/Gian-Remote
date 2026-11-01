@@ -5,6 +5,16 @@
   "note": "Each entry is one path and SHA-256. A matching digest at another path is not accepted. SVG is scanned as text and is not listed. An extension is not an allowlist.",
   "entries": [
     {
+      "path": "packages/desktop/resources/gian-menubarTemplate.png",
+      "sha256": "e755db7f6ed3d5c4d09f837e42acd08ca00623afe29b6568f61a7d3cdfe91b44",
+      "reviewedOn": "2026-10-27"
+    },
+    {
+      "path": "packages/desktop/resources/gian-menubarTemplate@2x.png",
+      "sha256": "2d73addfafa2fe5dc233b0cad823431ea6609588639db8fe7b57b4c6f2c95b7c",
+      "reviewedOn": "2026-10-27"
+    },
+    {
       "path": "packages/proxies/antigravity-proxy/assets/logo.png",
       "sha256": "c8ae82dfb8550a772969bfef1a9842124ae22383f8c191572b6d784bc23a83c0",
       "reviewedOn": "2026-10-19"

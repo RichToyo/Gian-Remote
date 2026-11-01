@@ -15,7 +15,8 @@
     ],
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": false,
-    "noEmit": true
+    "noEmit": false,
+    "emitDeclarationOnly": true
   },
   "include": [
     "src/**/*",

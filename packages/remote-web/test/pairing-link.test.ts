@@ -4,6 +4,7 @@ import { createProductionController } from '../src/controller/create.js';
 import { MemoryBrowserIdentityStore } from '../src/transport/identity.js';
 import { MemoryEncryptedHostCache } from '../src/cache/encrypted-cache.js';
 import type { RemoteHttpClient } from '../src/transport/http.js';
+import { serverIdentityFetch } from './server-identity-fetch.js';
 
 describe('real QR pairing entry', () => {
   const nonce = 'a-valid-opaque-grant-nonce';
@@ -78,6 +79,7 @@ describe('real QR pairing entry', () => {
       pairingNonce: link.nonce, onPairingLinkDismissed: link.dismiss,
       identity: new MemoryBrowserIdentityStore(), cache: new MemoryEncryptedHostCache(),
       http: { request } as unknown as RemoteHttpClient,
+      fetchFn: serverIdentityFetch,
     });
     try {
       expect(request).not.toHaveBeenCalled();
@@ -119,6 +121,7 @@ describe('real QR pairing entry', () => {
       baseUrl: 'https://remote.test', publicOrigin: 'https://remote.test', pairingNonce: nonce,
       identity: new MemoryBrowserIdentityStore(), cache: new MemoryEncryptedHostCache(),
       http: { request } as unknown as RemoteHttpClient, autoRestore: false,
+      fetchFn: serverIdentityFetch,
     });
     try {
       controller.actions.confirmQrPairing();

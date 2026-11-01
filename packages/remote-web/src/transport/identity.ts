@@ -95,12 +95,19 @@ export class MemoryBrowserIdentityStore implements BrowserIdentityStore {
 const INSTALL_KEY = 'gian.remote.browser_installation_id';
 
 export class LocalStorageBrowserIdentityStore extends MemoryBrowserIdentityStore {
+  constructor(private readonly serverOrigin?: string) { super(); }
+
+  private installationKey(): string {
+    return this.serverOrigin ? `${INSTALL_KEY}:${encodeURIComponent(this.serverOrigin)}` : INSTALL_KEY;
+  }
+
   override async browserInstallationId(): Promise<string> {
     try {
-      const existing = globalThis.localStorage?.getItem(INSTALL_KEY);
+      const key = this.installationKey();
+      const existing = globalThis.localStorage?.getItem(key);
       if (existing) return existing;
       const created = await super.browserInstallationId();
-      globalThis.localStorage?.setItem(INSTALL_KEY, created);
+      globalThis.localStorage?.setItem(key, created);
       return created;
     } catch {
       return super.browserInstallationId();
@@ -111,7 +118,7 @@ export class LocalStorageBrowserIdentityStore extends MemoryBrowserIdentityStore
     try {
       return await super.hostIdentity(hostId);
     } catch {
-      const stored = await idbGetIdentity(hostId);
+      const stored = await idbGetIdentity(hostId, this.serverOrigin);
       if (!stored) throw new Error(`no Host-scoped browser key for ${hostId}`);
       this.hydrate(stored);
       return stored;
@@ -120,26 +127,26 @@ export class LocalStorageBrowserIdentityStore extends MemoryBrowserIdentityStore
 
   override async bindPending(hostId: string): Promise<HostScopedIdentity> {
     const bound = await super.bindPending(hostId);
-    await idbPutIdentity(bound);
+    await idbPutIdentity(bound, this.serverOrigin);
     return bound;
   }
 
   override async listHostIds(): Promise<string[]> {
     const memory = await super.listHostIds();
-    const stored = await idbListHostIds();
+    const stored = await idbListHostIds(this.serverOrigin);
     return [...new Set([...memory, ...stored])];
   }
 
   override async clearHost(hostId: string): Promise<void> {
     await super.clearHost(hostId);
-    await idbClearIdentity(hostId);
+    await idbClearIdentity(hostId, this.serverOrigin);
   }
 
   override async clearAll(): Promise<void> {
     await super.clearAll();
-    await idbClearIdentity();
+    await idbClearIdentity(undefined, this.serverOrigin);
     try {
-      globalThis.localStorage?.removeItem(INSTALL_KEY);
+      globalThis.localStorage?.removeItem(this.installationKey());
     } catch {
       // ignore
     }
@@ -153,19 +160,20 @@ function idbAvailable(): boolean {
   return typeof indexedDB !== 'undefined';
 }
 
-function openIdentityDb(): Promise<IDBDatabase> {
+function openIdentityDb(serverOrigin?: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(IDB_NAME, 1);
+    const name = serverOrigin ? `${IDB_NAME}:${encodeURIComponent(serverOrigin)}` : IDB_NAME;
+    const request = indexedDB.open(name, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(IDB_STORE);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 }
 
-async function idbPutIdentity(identity: HostScopedIdentity): Promise<void> {
+async function idbPutIdentity(identity: HostScopedIdentity, serverOrigin?: string): Promise<void> {
   if (!idbAvailable()) return;
   try {
-    const db = await openIdentityDb();
+    const db = await openIdentityDb(serverOrigin);
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(IDB_STORE, 'readwrite');
       tx.objectStore(IDB_STORE).put(identity, identity.hostId);
@@ -178,10 +186,10 @@ async function idbPutIdentity(identity: HostScopedIdentity): Promise<void> {
   }
 }
 
-async function idbGetIdentity(hostId: string): Promise<HostScopedIdentity | null> {
+async function idbGetIdentity(hostId: string, serverOrigin?: string): Promise<HostScopedIdentity | null> {
   if (!idbAvailable()) return null;
   try {
-    const db = await openIdentityDb();
+    const db = await openIdentityDb(serverOrigin);
     const value = await new Promise<HostScopedIdentity | null>((resolve, reject) => {
       const tx = db.transaction(IDB_STORE, 'readonly');
       const request = tx.objectStore(IDB_STORE).get(hostId);
@@ -195,10 +203,10 @@ async function idbGetIdentity(hostId: string): Promise<HostScopedIdentity | null
   }
 }
 
-async function idbListHostIds(): Promise<string[]> {
+async function idbListHostIds(serverOrigin?: string): Promise<string[]> {
   if (!idbAvailable()) return [];
   try {
-    const db = await openIdentityDb();
+    const db = await openIdentityDb(serverOrigin);
     const keys = await new Promise<string[]>((resolve, reject) => {
       const tx = db.transaction(IDB_STORE, 'readonly');
       const request = tx.objectStore(IDB_STORE).getAllKeys();
@@ -212,10 +220,10 @@ async function idbListHostIds(): Promise<string[]> {
   }
 }
 
-async function idbClearIdentity(hostId?: string): Promise<void> {
+async function idbClearIdentity(hostId?: string, serverOrigin?: string): Promise<void> {
   if (!idbAvailable()) return;
   try {
-    const db = await openIdentityDb();
+    const db = await openIdentityDb(serverOrigin);
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(IDB_STORE, 'readwrite');
       if (hostId) tx.objectStore(IDB_STORE).delete(hostId);
@@ -229,8 +237,8 @@ async function idbClearIdentity(hostId?: string): Promise<void> {
   }
 }
 
-export function createBrowserIdentityStore(): BrowserIdentityStore {
+export function createBrowserIdentityStore(serverOrigin?: string): BrowserIdentityStore {
   return typeof localStorage === 'undefined'
     ? new MemoryBrowserIdentityStore()
-    : new LocalStorageBrowserIdentityStore();
+    : new LocalStorageBrowserIdentityStore(serverOrigin);
 }
