@@ -104,14 +104,15 @@ test('upgrade preserves explicit peer revocations without treating expiry as rev
     const host = db.prepare('INSERT INTO hosts(id, name, public_key_jwk, created_at, account_peer_id) VALUES (?, ?, ?, 1, ?)');
     host.run('revoked-host', 'revoked', '{}', 'host-revoked');
     host.run('live-host', 'live', '{}', 'host-expired');
-    db.prepare("INSERT INTO browser_installations(id, created_at) VALUES ('browser', 1)").run();
+    const browser = db.prepare('INSERT INTO browser_installations(id, created_at) VALUES (?, 1)');
+    for (const id of ['revoked-browser', 'expired-browser', 'new-browser']) browser.run(id);
     const pairing = db.prepare(`INSERT INTO device_host_pairings(
       id, browser_installation_id, host_id, public_key_jwk, platform, user_agent,
       created_at, confirmed_at, account_peer_id
-    ) VALUES (?, 'browser', 'live-host', '{}', 'test', 'test', 1, 1, ?)`);
-    pairing.run('revoked-controller', 'controller-revoked');
-    pairing.run('expired-controller', 'controller-expired');
-    pairing.run('new-device', null);
+    ) VALUES (?, ?, 'live-host', '{}', 'test', 'test', 1, 1, ?)`);
+    pairing.run('revoked-controller', 'revoked-browser', 'controller-revoked');
+    pairing.run('expired-controller', 'expired-browser', 'controller-expired');
+    pairing.run('new-device', 'new-browser', null);
     runMigrations(db);
     runMigrations(db);
     assert.equal((db.prepare("SELECT revoked_at FROM hosts WHERE id = 'revoked-host'").get() as { revoked_at: number }).revoked_at, 20);

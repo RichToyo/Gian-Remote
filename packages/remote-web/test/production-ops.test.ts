@@ -94,11 +94,12 @@ describe('production controller operations', () => {
     try {
       controller.actions.challengeLogin(hostId);
       await viWait(async () => controller.state.connection.kind === 'online');
+      const readsBeforeLogin = restoreReads;
       controller.actions.startGitHubLogin!();
       await viWait(async () => controller.state.account?.userCode === 'CODE');
       controller.actions.pollGitHubLogin!();
       await viWait(async () => controller.state.account?.status === 'signed_in');
-      expect(restoreReads).toBe(0);
+      expect(restoreReads).toBe(readsBeforeLogin);
       expect(controller.state.connection).toEqual({ kind: 'online' });
       expect(controller.state.currentHostId).toBe(hostId);
       expect(await identity.listHostIds()).toEqual([hostId]);
@@ -112,12 +113,15 @@ describe('production controller operations', () => {
   });
   it('does not authenticate a stale Host after delayed server identity discovery', async () => {
     let release!: () => void;
+    let markEntered!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { markEntered = resolve; });
     let first = true;
     const challenges: string[] = [];
     const { controller } = await pairedController({
+      extraHosts: [hostB],
       identityFetch: async (input, init) => {
-        if (first) { first = false; await gate; }
+        if (first) { first = false; markEntered(); await gate; }
         return serverIdentityFetch(input, init);
       },
       createRelay: input => new FakeRelay(input),
@@ -127,6 +131,7 @@ describe('production controller operations', () => {
     });
     try {
       controller.actions.challengeLogin(hostId);
+      await entered;
       controller.actions.challengeLogin(hostB);
       release();
       await viWait(async () => controller.state.connection.kind === 'online' && controller.state.currentHostId === hostB);

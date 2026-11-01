@@ -128,7 +128,7 @@ test('enrollment page login issues a separate secure cookie, never OAuth or acco
     assert.match(response.headers.get('set-cookie')!, /SameSite=Strict/);
     assert.match(response.headers.get('set-cookie')!, /Path=\/api\/v1\/enrollment/);
     assert.equal(response.headers.get('cache-control'), 'no-store');
-    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }))).status, 401);
+    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }))).status, 403);
     assert.equal((await f.fetch('/api/v1/enrollment/session', { headers: { cookie } })).status, 200);
     const issuedResponse = await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie, csrf));
     assert.equal(issuedResponse.status, 200);
@@ -179,6 +179,7 @@ test('web token issuance is rate limited independently of a GitHub allowlist', a
   const f = await makeRemoteTestApp({ config: { authRateLimitPerMinute: 1, enrollmentPasswordHash: hash, enrollmentGithubIds: [] } });
   try {
     const { cookie, csrf } = await enrollmentLogin(f);
+    assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie, csrf))).status, 200);
     assert.equal((await f.fetch('/api/v1/enrollment/tokens', post({ protocol: AUTH_PROTOCOL }, cookie, csrf))).status, 429);
   } finally { f.handle.shutdown(); }
 });

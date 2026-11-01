@@ -91,7 +91,7 @@ test('browser without GitHub needs Host confirmation and device key; delegated l
     assert.equal((await f.fetch('/api/v1/pairings/' + pairing.pairing_id + '/confirm', json({ protocol: AUTH_PROTOCOL,
       pairing_id: pairing.pairing_id, decision: 'confirm' }, host.accessToken))).status, 200);
     assert.throws(() => f.handle.services.accounts.requirePairing(pairing.pairing_id));
-    assert.equal(f.handle.services.db.prepare('SELECT account_peer_id FROM device_host_pairings WHERE id = ?').get(pairing.pairing_id), { account_peer_id: null });
+    assert.deepEqual(f.handle.services.db.prepare('SELECT account_peer_id FROM device_host_pairings WHERE id = ?').get(pairing.pairing_id), { account_peer_id: null });
     f.clock.tick(1000);
     assert.equal((await f.fetch('/api/v1/pairings/' + pairing.pairing_id + '/confirm', json({ protocol: AUTH_PROTOCOL,
       pairing_id: pairing.pairing_id, decision: 'confirm' }, host.accessToken))).status, 200);
@@ -251,7 +251,8 @@ test('legacy revoked and expired controller peers have different Remote admissio
     assert.equal((await f.fetch('/api/v1/sessions/device-challenge', json(revokedInput))).status, 401);
     assert.equal((await f.fetch('/api/v1/ws-tickets', json({ protocol: AUTH_PROTOCOL, host_id: host.hostId }, revoked.accessToken))).status, 401);
 
-    const expired = await pairDevice(f.fetch, host.accessToken, host.hostId);
+    const freshFetch: typeof f.fetch = (path, init) => f.fetch(path, init);
+    const expired = await pairDevice(freshFetch, host.accessToken, host.hostId);
     f.handle.services.db.prepare('UPDATE device_host_pairings SET account_peer_id = ? WHERE id = ?')
       .run(expired.accountPeerId, expired.deviceId);
     f.handle.services.db.prepare("UPDATE account_peers SET expires_at = ? WHERE role = 'controller' AND installation_id = ?")

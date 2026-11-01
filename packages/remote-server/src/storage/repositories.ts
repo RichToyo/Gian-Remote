@@ -546,6 +546,7 @@ export class RemoteRepositories {
   }
 
   recordRevokedKey(pairing: DevicePairingRow): void {
+    if (!pairing.public_key_jwk) return;
     this.db.prepare(`
       INSERT INTO revoked_pairing_keys(public_key_hash, public_key_jwk, host_id, device_id, revoked_at)
       VALUES (?, ?, ?, ?, ?)
