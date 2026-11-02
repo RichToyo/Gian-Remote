@@ -15,7 +15,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@gian/remote-protocol": "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.0/gian-remote-protocol-1.5.0.tgz",
+    "@gian/remote-protocol": "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.1/gian-remote-protocol-1.5.1.tgz",
     "@hono/node-server": "^1.13.7",
     "@hono/node-ws": "^1.0.5",
     "better-sqlite3": "13.0.3",

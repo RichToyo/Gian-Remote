@@ -25,6 +25,11 @@ export class SlidingWindowLimiter {
     this.#hits.set(key, next);
   }
 
+  retryAfterSeconds(key: string): number {
+    const oldest = this.prune(key)[0];
+    return oldest === undefined ? 1 : Math.max(1, Math.ceil((oldest + this.windowMs - this.now()) / 1_000));
+  }
+
   private prune(key: string): number[] {
     const cutoff = this.now() - this.windowMs;
     const next = (this.#hits.get(key) ?? []).filter((stamp) => stamp > cutoff);

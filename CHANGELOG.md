@@ -1,5 +1,11 @@
 # Gian Remote Changelog
 
+## [1.5.1] - 2026-11-01
+
+- Return a retry delay when Remote authentication requests are rate limited.
+- Consume Remote Protocol 1.5.1, which distinguishes temporary Server
+  identity rate limits from rejected authentication.
+
 ## [1.5.0] - 2026-11-01
 
 - Admit Hosts and native controllers with short-lived enrollment codes and

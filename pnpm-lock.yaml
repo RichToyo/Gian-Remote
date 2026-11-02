@@ -119,8 +119,8 @@ importers:
   packages/remote-server:
     dependencies:
       '@gian/remote-protocol':
-        specifier: "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.0/gian-remote-protocol-1.5.0.tgz"
-        version: "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.0/gian-remote-protocol-1.5.0.tgz"
+        specifier: "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.1/gian-remote-protocol-1.5.1.tgz"
+        version: "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.1/gian-remote-protocol-1.5.1.tgz"
       '@hono/node-server':
         specifier: 1.19.15
         version: 1.19.15(hono@4.13.7)
@@ -153,8 +153,8 @@ importers:
         specifier: workspace:*
         version: link:../chat-ui
       '@gian/remote-protocol':
-        specifier: "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.0/gian-remote-protocol-1.5.0.tgz"
-        version: "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.0/gian-remote-protocol-1.5.0.tgz"
+        specifier: "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.1/gian-remote-protocol-1.5.1.tgz"
+        version: "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.1/gian-remote-protocol-1.5.1.tgz"
       '@gian/shared':
         specifier: workspace:*
         version: link:../shared
@@ -213,11 +213,11 @@ importers:
 
 packages:
 
-  "@gian/remote-protocol@https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.0/gian-remote-protocol-1.5.0.tgz":
+  "@gian/remote-protocol@https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.1/gian-remote-protocol-1.5.1.tgz":
     resolution:
-      integrity: "sha512-KutcQaXYLicwjRzkIjBk9jMSyzLRqWnf4Aoru52Kg5G39kxLMWz3KnOaOpJ1a02Ivpem7fXsMXxSJ4bnZCH+Jg=="
-      tarball: "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.0/gian-remote-protocol-1.5.0.tgz"
-    version: "1.5.0"
+      integrity: "sha512-/w8mOhM1dcQdmCn/AXfOcfN1bADgvxlm9i3nUYmztGSXbyLjMLsCGnLrNwussX/YY2eT989p7BDcOa5SxgtpmQ=="
+      tarball: "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.1/gian-remote-protocol-1.5.1.tgz"
+    version: "1.5.1"
 
   '@adobe/css-tools@4.4.4':
     resolution: {integrity: sha512-Elp+iwUx5rN5+Y8xLt5/GRoG20WGoDCQ/1Fb+1LiGtvwbDavuSk0jhD/eZdckHAuzcDzccnkv+rEjyWfRx18gg==}
@@ -7564,7 +7564,7 @@ packages:
 
 snapshots:
 
-  "@gian/remote-protocol@https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.0/gian-remote-protocol-1.5.0.tgz":
+  "@gian/remote-protocol@https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.1/gian-remote-protocol-1.5.1.tgz":
     dependencies:
       "zod": "4.6.6"
 

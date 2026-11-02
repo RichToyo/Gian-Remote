@@ -238,6 +238,7 @@ export async function createRemoteApp(config: RemoteServerConfig): Promise<Remot
       const ip = clientIp(config, context.req.header('x-forwarded-for'));
       const selectedLimiter = path.endsWith('/account/poll') ? accountPollLimiter : limiter;
       if (!selectedLimiter.allow(`${ip}:${path}`)) {
+        context.header('Retry-After', String(selectedLimiter.retryAfterSeconds(`${ip}:${path}`)));
         return context.json(jsonError('RATE_LIMITED'), 429);
       }
     }

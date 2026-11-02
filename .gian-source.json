@@ -2,7 +2,7 @@
   "schema": 1,
   "product": "Gian Remote",
   "sourceRepository": "RichLogic/Gian-Dev",
-  "sourceCommit": "5d39cdd0e0c45a5fa8271927c7723306d422219c",
+  "sourceCommit": "67b805d38df6dd41ca736fc58330d9b3cea43a64",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -13,14 +13,14 @@
       "schema": 1,
       "name": "@gian/remote-protocol",
       "repository": "RichToyo/Gian",
-      "version": "1.5.0",
-      "tag": "remote-protocol-v1.5.0",
-      "filename": "gian-remote-protocol-1.5.0.tgz",
-      "url": "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.0/gian-remote-protocol-1.5.0.tgz",
-      "sourceCommit": "e1d9653c982873bd4a3df1798c1b12b87744ac0e",
-      "size": 103022,
-      "sha256": "a7886d48540b3724e737d4722b4b07f1f2b93a3f90e44f6bc103dbd227118238",
-      "integrity": "sha512-KutcQaXYLicwjRzkIjBk9jMSyzLRqWnf4Aoru52Kg5G39kxLMWz3KnOaOpJ1a02Ivpem7fXsMXxSJ4bnZCH+Jg==",
+      "version": "1.5.1",
+      "tag": "remote-protocol-v1.5.1",
+      "filename": "gian-remote-protocol-1.5.1.tgz",
+      "url": "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.1/gian-remote-protocol-1.5.1.tgz",
+      "sourceCommit": "63c406ab38f82c388ee65cf1b20faf1ae751ab14",
+      "size": 103774,
+      "sha256": "5eb2f74671cf7ca743c6a9ea8c89655233c594d5ea021ab67c4a2755a1984c11",
+      "integrity": "sha512-/w8mOhM1dcQdmCn/AXfOcfN1bADgvxlm9i3nUYmztGSXbyLjMLsCGnLrNwussX/YY2eT989p7BDcOa5SxgtpmQ==",
       "dependencies": {
         "zod": "4.6.6"
       }
@@ -70,7 +70,7 @@
     {
       "source": "delivery/remote/CHANGELOG.md",
       "path": "CHANGELOG.md",
-      "sha256": "6eeb9d0460d2e79a0820af898e7c0cc2da5621f03932ac02ec8b2bbfeb34a6f4"
+      "sha256": "487eddd258680d49411016a3bbcc29f7560574f058a39d08372dd813dec5c6ca"
     },
     {
       "source": "delivery/remote/Dockerfile",
@@ -90,12 +90,12 @@
     {
       "source": "delivery/remote/protocol-package.json",
       "path": "protocol-package.json",
-      "sha256": "74a6d194de7ef47ef5ea01abe2148f678f56951d952d214d2004197efd0d9286"
+      "sha256": "16e0f95140e05ab64aea8e7b01f1cdf8ca4c43d8b77912536b73c3711eba7e14"
     },
     {
       "source": "delivery/remote/release.json",
       "path": "release.json",
-      "sha256": "975d00931db2b41053bca7b8c5fa875fad5657104c0f7851647536ee3efc4ddb"
+      "sha256": "109298560792e5ad4b53eea818265ab45c2cc66e1dbc7ececcf51f4d9bf929e5"
     },
     {
       "source": "delivery/remote/runtime.env.example",
@@ -185,7 +185,7 @@
     {
       "source": "packages/chat-ui/package.json",
       "path": "packages/chat-ui/package.json",
-      "sha256": "4e2bcbeb4ef6ccfafc46f366edd1a72ff96b872da87206954c1a1da53ae82eb7"
+      "sha256": "08162f516ac354c19e96600c528e3184563c451d7022522ba53550921ade1be1"
     },
     {
       "source": "packages/chat-ui/src/approval-cards.tsx",
@@ -480,7 +480,7 @@
     {
       "source": "packages/remote-server/src/app.ts",
       "path": "packages/remote-server/src/app.ts",
-      "sha256": "236d6176dd56493817dec8c24e22eb3355040063893e05e551f89e1d57f9cd15"
+      "sha256": "9d0fdbcae2d5e6a1fb9d0cb263adb82c76950337c97014adca045e85b1c002f7"
     },
     {
       "source": "packages/remote-server/src/auth/account-login.ts",
@@ -515,7 +515,7 @@
     {
       "source": "packages/remote-server/src/auth/rate-limit.ts",
       "path": "packages/remote-server/src/auth/rate-limit.ts",
-      "sha256": "36d9d7d718c8ed69d55b1d46d0dbcc7f26ad3605c0ce8f438611022c5cd87c1b"
+      "sha256": "e7a4ec7670ce0fe49ad59304b152894f50364564296c570c5d96cb5fd66b76d1"
     },
     {
       "source": "packages/remote-server/src/auth/signatures.ts",
@@ -655,7 +655,7 @@
     {
       "source": "packages/remote-server/test/limits.test.ts",
       "path": "packages/remote-server/test/limits.test.ts",
-      "sha256": "81fee7f6dc20ad1ba9c6c4e7ee71f3a28df45f8233aa27dd7d582156ec710534"
+      "sha256": "1962e90c241d5315f2594978a4ab0ffe131f2fc3b2dae445a7a665d02ca01ecc"
     },
     {
       "source": "packages/remote-server/test/migrations.test.ts",
@@ -690,7 +690,7 @@
     {
       "source": "packages/remote-server/test/server-identity.test.ts",
       "path": "packages/remote-server/test/server-identity.test.ts",
-      "sha256": "979e6a1dacae77a50bdffed31eba473dfcd6247c159e1392738c0c0d33bd429c"
+      "sha256": "5a33fa750059a62564a0f720798cd0ebc1119ca00c0780ed4a896151399f1f53"
     },
     {
       "source": "packages/remote-server/test/sessions.test.ts",
@@ -1190,7 +1190,7 @@
     {
       "source": "packages/shared/package.json",
       "path": "packages/shared/package.json",
-      "sha256": "b57f63d7b5ba08c764e08f10931589334ea7d19ef46f89ebe527776c142e12b8"
+      "sha256": "228932b04220de7ee6028b27df4243ebccce43a1a5e250f54ebe60dff0a291a4"
     },
     {
       "source": "packages/shared/src/action.ts",
@@ -1477,7 +1477,7 @@
     {
       "path": "CHANGELOG.md",
       "mode": 420,
-      "sha256": "6eeb9d0460d2e79a0820af898e7c0cc2da5621f03932ac02ec8b2bbfeb34a6f4"
+      "sha256": "487eddd258680d49411016a3bbcc29f7560574f058a39d08372dd813dec5c6ca"
     },
     {
       "path": "compose.yaml",
@@ -1497,12 +1497,12 @@
     {
       "path": "package.json",
       "mode": 420,
-      "sha256": "ad1f4ce5c74b1ee0f2c440bb5b20773e79ca64a90e51f979f425d9f4744b8008"
+      "sha256": "143bdb370e4e696db2f1bb518c306562c8ed17b550429b3e716b994743cdd483"
     },
     {
       "path": "packages/chat-ui/package.json",
       "mode": 420,
-      "sha256": "4e2bcbeb4ef6ccfafc46f366edd1a72ff96b872da87206954c1a1da53ae82eb7"
+      "sha256": "08162f516ac354c19e96600c528e3184563c451d7022522ba53550921ade1be1"
     },
     {
       "path": "packages/chat-ui/src/approval-cards.tsx",
@@ -1792,12 +1792,12 @@
     {
       "path": "packages/remote-server/package.json",
       "mode": 420,
-      "sha256": "58883b76600ad0c0308071306402d6a15e2dd3eb86384f02c739844044e58b5d"
+      "sha256": "fe605cf7bc80f23ec10912f533b4dc9797c84808259d8f7a2ce630c222d77c91"
     },
     {
       "path": "packages/remote-server/src/app.ts",
       "mode": 420,
-      "sha256": "236d6176dd56493817dec8c24e22eb3355040063893e05e551f89e1d57f9cd15"
+      "sha256": "9d0fdbcae2d5e6a1fb9d0cb263adb82c76950337c97014adca045e85b1c002f7"
     },
     {
       "path": "packages/remote-server/src/auth/account-login.ts",
@@ -1832,7 +1832,7 @@
     {
       "path": "packages/remote-server/src/auth/rate-limit.ts",
       "mode": 420,
-      "sha256": "36d9d7d718c8ed69d55b1d46d0dbcc7f26ad3605c0ce8f438611022c5cd87c1b"
+      "sha256": "e7a4ec7670ce0fe49ad59304b152894f50364564296c570c5d96cb5fd66b76d1"
     },
     {
       "path": "packages/remote-server/src/auth/signatures.ts",
@@ -1972,7 +1972,7 @@
     {
       "path": "packages/remote-server/test/limits.test.ts",
       "mode": 420,
-      "sha256": "81fee7f6dc20ad1ba9c6c4e7ee71f3a28df45f8233aa27dd7d582156ec710534"
+      "sha256": "1962e90c241d5315f2594978a4ab0ffe131f2fc3b2dae445a7a665d02ca01ecc"
     },
     {
       "path": "packages/remote-server/test/migrations.test.ts",
@@ -2007,7 +2007,7 @@
     {
       "path": "packages/remote-server/test/server-identity.test.ts",
       "mode": 420,
-      "sha256": "979e6a1dacae77a50bdffed31eba473dfcd6247c159e1392738c0c0d33bd429c"
+      "sha256": "5a33fa750059a62564a0f720798cd0ebc1119ca00c0780ed4a896151399f1f53"
     },
     {
       "path": "packages/remote-server/test/sessions.test.ts",
@@ -2032,7 +2032,7 @@
     {
       "path": "packages/remote-web/package.json",
       "mode": 420,
-      "sha256": "7696ddb8910d321023dd3548ef0735f451805e34df79ba33504977fb95ac5560"
+      "sha256": "14f92ca19951155e8cbf81cb1ec24532e758aee5bd30d888e255678c0be1a07d"
     },
     {
       "path": "packages/remote-web/scripts/write-static-manifest.mjs",
@@ -2507,7 +2507,7 @@
     {
       "path": "packages/shared/package.json",
       "mode": 420,
-      "sha256": "b57f63d7b5ba08c764e08f10931589334ea7d19ef46f89ebe527776c142e12b8"
+      "sha256": "228932b04220de7ee6028b27df4243ebccce43a1a5e250f54ebe60dff0a291a4"
     },
     {
       "path": "packages/shared/src/action.ts",
@@ -2717,7 +2717,7 @@
     {
       "path": "pnpm-lock.yaml",
       "mode": 420,
-      "sha256": "b4cbf2be105deeb355efaf0043bc0501b5f10d2288c0fc289173a1fffca0ba45"
+      "sha256": "cc254d39a1d2aeb1d759affde305289191fa911eac0a74f332eadcd4751f05cd"
     },
     {
       "path": "pnpm-workspace.yaml",
@@ -2727,7 +2727,7 @@
     {
       "path": "protocol-package.json",
       "mode": 420,
-      "sha256": "74a6d194de7ef47ef5ea01abe2148f678f56951d952d214d2004197efd0d9286"
+      "sha256": "16e0f95140e05ab64aea8e7b01f1cdf8ca4c43d8b77912536b73c3711eba7e14"
     },
     {
       "path": "README.md",
@@ -2737,7 +2737,7 @@
     {
       "path": "release.json",
       "mode": 420,
-      "sha256": "975d00931db2b41053bca7b8c5fa875fad5657104c0f7851647536ee3efc4ddb"
+      "sha256": "109298560792e5ad4b53eea818265ab45c2cc66e1dbc7ececcf51f4d9bf929e5"
     },
     {
       "path": "runtime.env.example",

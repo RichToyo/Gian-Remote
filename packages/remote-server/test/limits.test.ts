@@ -47,6 +47,8 @@ test('auth rate limit and per-host device cap isolate abuse', async () => {
       body: JSON.stringify({ protocol: AUTH_PROTOCOL }),
     }));
   }
-  assert.ok(limited.some((response) => response.status === 429));
+  const throttled = limited.find((response) => response.status === 429);
+  assert.ok(throttled);
+  assert.equal(throttled.headers.get('retry-after'), '60');
   handle.shutdown();
 });
