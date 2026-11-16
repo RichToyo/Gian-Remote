@@ -2,7 +2,7 @@
   "schema": 1,
   "product": "Gian Remote",
   "sourceRepository": "RichToyo/Gian",
-  "sourceCommit": "08e27f1f037c1db71fafaa08ee1033e4ba8d1106",
+  "sourceCommit": "572799d279c2859ef12b128383b12b675decbf24",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -70,7 +70,7 @@
     {
       "source": "delivery/remote/CHANGELOG.md",
       "path": "CHANGELOG.md",
-      "sha256": "487eddd258680d49411016a3bbcc29f7560574f058a39d08372dd813dec5c6ca"
+      "sha256": "fa51a03881d115b6ca781e203088b57d23a7f41e47abde6c2889fe7354635a4c"
     },
     {
       "source": "delivery/remote/Dockerfile",
@@ -95,7 +95,7 @@
     {
       "source": "delivery/remote/release.json",
       "path": "release.json",
-      "sha256": "109298560792e5ad4b53eea818265ab45c2cc66e1dbc7ececcf51f4d9bf929e5"
+      "sha256": "d1ab7db7599acad24cf0721391bb2905b600acb58e1563fe3d4c24545d9270be"
     },
     {
       "source": "delivery/remote/runtime.env.example",
@@ -1487,7 +1487,7 @@
     {
       "path": "CHANGELOG.md",
       "mode": 420,
-      "sha256": "487eddd258680d49411016a3bbcc29f7560574f058a39d08372dd813dec5c6ca"
+      "sha256": "fa51a03881d115b6ca781e203088b57d23a7f41e47abde6c2889fe7354635a4c"
     },
     {
       "path": "compose.yaml",
@@ -1507,7 +1507,7 @@
     {
       "path": "package.json",
       "mode": 420,
-      "sha256": "143bdb370e4e696db2f1bb518c306562c8ed17b550429b3e716b994743cdd483"
+      "sha256": "1020b67183002337c317344c4bb2c16f78ae8ab7ec4d4510e2ac087e86470224"
     },
     {
       "path": "packages/chat-ui/package.json",
@@ -2757,7 +2757,7 @@
     {
       "path": "release.json",
       "mode": 420,
-      "sha256": "109298560792e5ad4b53eea818265ab45c2cc66e1dbc7ececcf51f4d9bf929e5"
+      "sha256": "d1ab7db7599acad24cf0721391bb2905b600acb58e1563fe3d4c24545d9270be"
     },
     {
       "path": "runtime.env.example",

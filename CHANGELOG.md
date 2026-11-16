@@ -1,5 +1,15 @@
 # Gian Remote Changelog
 
+## [1.6.0] - 2026-11-16
+
+- Apply authentication rate limits by client address and proven identity, and
+  increase the server identity proof allowance.
+- Pace Host relay connections and scope content limits per route for concurrent
+  device transfers.
+- Allow Host-confirmed re-pairing with an existing controller key, scope key
+  revocation per Host, and acknowledge removal of already absent pairings.
+  This release includes Server migration 009.
+
 ## [1.5.1] - 2026-11-01
 
 - Return a retry delay when Remote authentication requests are rate limited.
