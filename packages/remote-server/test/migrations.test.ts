@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { ENROLLMENT_TTL_MS } from '@gian/remote-protocol';
 
 import { listColumns, listTables, openRemoteDatabase } from '../src/index.js';
-import { RemoteRepositories } from '../src/storage/repositories.js';
+import { RemoteRepositories, pairingKeyHash, recordRevokedPairingKey } from '../src/storage/repositories.js';
 import { runMigrations } from '../src/storage/db.js';
 import { hashSecret } from '../src/crypto-hash.js';
 
@@ -201,5 +201,61 @@ test('cleanup expires controller records without deleting live rows or reference
     assert.equal(repos.getPairing('pairing')?.confirmed_at, now);
     assert.equal(repos.getSession(family.id)?.browser_installation_id, 'controller');
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+  } finally { db.close(); }
+});
+
+test('upgrade scopes existing key revocations to their Host; a row without a Host still blocks every Host', () => {
+  const db = new Database(':memory:');
+  try {
+    const migrations = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
+    db.exec('CREATE TABLE schema_migrations(filename TEXT PRIMARY KEY, applied_at TEXT NOT NULL)');
+    for (const file of readdirSync(migrations).filter(name => name.endsWith('.sql') && name < '009').sort()) {
+      db.exec(readFileSync(join(migrations, file), 'utf8'));
+      db.prepare('INSERT INTO schema_migrations VALUES (?, ?)').run(file, 'fixture');
+    }
+    const key = (x: string) => JSON.stringify({ kty: 'EC', crv: 'P-256', x: x.repeat(43), y: 'Y'.repeat(43) });
+    const scoped = key('S');
+    const everywhere = key('G');
+    const revoked = db.prepare(`INSERT INTO revoked_pairing_keys(public_key_hash, public_key_jwk, host_id, device_id, revoked_at)
+      VALUES (?, ?, ?, ?, 100)`);
+    revoked.run(pairingKeyHash(scoped), scoped, 'host-x', 'revoked-device');
+    revoked.run(pairingKeyHash(everywhere), everywhere, '', 'legacy-device');
+    runMigrations(db);
+    runMigrations(db);
+
+    assert.deepEqual(db.prepare(`SELECT public_key_hash, host_id, device_id, revoked_at
+      FROM revoked_pairing_keys ORDER BY host_id`).all(), [
+      { public_key_hash: pairingKeyHash(everywhere), host_id: '', device_id: 'legacy-device', revoked_at: 100 },
+      { public_key_hash: pairingKeyHash(scoped), host_id: 'host-x', device_id: 'revoked-device', revoked_at: 100 },
+    ]);
+    assert.deepEqual((db.prepare('PRAGMA table_info(revoked_pairing_keys)').all() as Array<{ name: string; pk: number }>)
+      .filter(column => column.pk > 0).sort((a, b) => a.pk - b.pk).map(column => column.name), ['public_key_hash', 'host_id']);
+
+    const repos = new RemoteRepositories(db, () => 1_000);
+    for (const host of ['host-x', 'host-y']) {
+      db.prepare("INSERT INTO hosts(id, name, public_key_jwk, created_at) VALUES (?, ?, '{}', 1)").run(host, host);
+    }
+    let browser = 0;
+    const pairing = (hostId: string, publicKeyJwk: string, createdAt: number) => {
+      const id = `pairing-${browser += 1}`;
+      repos.ensureBrowser(`browser-${browser}`);
+      db.prepare(`INSERT INTO device_host_pairings(
+        id, browser_installation_id, host_id, public_key_jwk, platform, user_agent, created_at, confirmed_at
+      ) VALUES (?, ?, ?, ?, 'macOS', 'test', ?, ?)`).run(id, `browser-${browser}`, hostId, publicKeyJwk, createdAt, createdAt);
+      return repos.getPairing(id)!;
+    };
+    assert.equal(repos.keyAdmittedPairing(pairing('host-x', scoped, 100)), false, 'what the revocation covered stays revoked');
+    assert.equal(repos.keyAdmittedPairing(pairing('host-x', scoped, 101)), true, 'a later confirmed pairing is admitted');
+    assert.equal(repos.keyAdmittedPairing(pairing('host-y', scoped, 50)), true, 'another Host is not affected');
+    assert.equal(repos.keyAdmittedPairing(pairing('host-y', everywhere, 500)), false);
+    assert.equal(repos.isRevokedPublicKey(scoped, 'host-x'), true);
+    assert.equal(repos.isRevokedPublicKey(scoped, 'host-y'), false);
+    assert.equal(repos.isRevokedPublicKey(everywhere, 'host-y'), true);
+
+    // A later revocation on the same Host moves the line forward, never back.
+    recordRevokedPairingKey(db, { id: 'later', host_id: 'host-x', public_key_jwk: scoped }, 200);
+    recordRevokedPairingKey(db, { id: 'earlier', host_id: 'host-x', public_key_jwk: scoped }, 150);
+    assert.deepEqual(db.prepare(`SELECT device_id, revoked_at FROM revoked_pairing_keys WHERE host_id = 'host-x'`).get(),
+      { device_id: 'later', revoked_at: 200 });
   } finally { db.close(); }
 });

@@ -4,6 +4,8 @@ export const TRANSLATION_LANGUAGES = [
   ['es', 'Spanish'], ['pt', 'Portuguese'], ['ru', 'Russian'], ['ar', 'Arabic'],
 ] as const;
 
+export const OPENAI_TRANSLATION_AGENT_ID = 'gian:openai-translation';
+
 export interface TranslationPreferences {
   sending_language: string;
   reading_language: string;

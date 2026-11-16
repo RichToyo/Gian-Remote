@@ -526,6 +526,31 @@ describe('remote conversation translation', () => {
     } finally { controller.close(); }
   });
 
+  it('does not let a delayed missing-key toggle receipt overwrite recovered readiness', async () => {
+    const { controller, currentRelay } = await bootedController();
+    try {
+      const relay = currentRelay();
+      await relay.emit(translationEvent({ state: translationState({
+        configured: false, revision: 1, config_revision: 2, reading_language: 'zh-CN',
+      }) }));
+      await viWait(() => controller.state.translations[sessionId]?.configured === false);
+      controller.actions.setAutoTranslation(sessionId, false);
+      await viWait(() => Boolean(relay.lastCommand('translation.set_auto')));
+      await relay.emit(translationEvent({ state: translationState({
+        enabled: false, configured: true, revision: 2, config_revision: 3, reading_language: 'en',
+      }) }));
+      await viWait(() => controller.state.translations[sessionId]?.configured === true
+        && controller.state.translations[sessionId]?.configRevision === 3);
+      await relay.answer('translation.set_auto', translationState({
+        enabled: false, configured: false, revision: 2, config_revision: 2, reading_language: 'zh-CN',
+      }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(controller.state.translations[sessionId]?.configured).toBe(true);
+      expect(controller.state.translations[sessionId]?.configRevision).toBe(3);
+      expect(controller.state.translations[sessionId]?.readingLanguage).toBe('en');
+    } finally { controller.close(); }
+  });
+
   it('a lost manual-read terminal status is recovered by request identity (F7)', async () => {
     const { controller, currentRelay, relays } = await bootedController();
     try {

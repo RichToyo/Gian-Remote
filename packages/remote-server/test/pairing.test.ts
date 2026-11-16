@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { AUTH_PROTOCOL, PAIRING_TTL_MS } from '@gian/remote-protocol';
+import { AUTH_PROTOCOL, PAIRING_TTL_MS, exportPublicJwk } from '@gian/remote-protocol';
 
 import { enrollHost, makeRemoteTestApp, pairDevice, withControllerAccount } from './fixture.js';
 
@@ -242,4 +242,60 @@ test('pairing claim race freezes the grant once', async () => {
   const statuses = [first.status, second.status].sort();
   assert.deepEqual(statuses, [200, 401]);
   handle.shutdown();
+});
+
+test('a browser cannot claim its key again on a Host, and a key revoked on one Host still pairs with another', async () => {
+  const { fetch: unauthenticatedFetch, clock, handle } = await makeRemoteTestApp({ config: { authRateLimitPerMinute: 1_000 } });
+  const fetch = await withControllerAccount(unauthenticatedFetch);
+  try {
+    const repos = handle.services.repos;
+    const hostX = await enrollHost(fetch);
+    const hostY = await enrollHost(fetch);
+    const onX = await pairDevice(fetch, hostX.accessToken, hostX.hostId);
+    const onY = await pairDevice(fetch, hostY.accessToken, hostY.hostId, { keys: onX.keys, browserId: onX.browserId });
+    const publicKey = await exportPublicJwk(onX.keys.publicKey);
+    const json = (body: unknown, token?: string): RequestInit => ({
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    });
+    const claimAgainOnX = async () => {
+      const grant = await (await fetch('/api/v1/host/pairings', json({ protocol: AUTH_PROTOCOL }, hostX.accessToken)))
+        .json() as { code: string };
+      return (await fetch('/api/v1/pairings/claim', json({
+        protocol: AUTH_PROTOCOL,
+        browser_installation_id: onX.browserId,
+        device_public_key: publicKey,
+        platform: 'macOS',
+        user_agent: 'TestBrowser',
+        code: grant.code,
+      }))).status;
+    };
+    const challenge = async (hostId: string) => {
+      const response = await fetch('/api/v1/sessions/device-challenge', json({
+        protocol: AUTH_PROTOCOL,
+        browser_installation_id: onX.browserId,
+        host_id: hostId,
+      }));
+      return response.status === 200 ? 200 : (await response.json() as { error: { code: string } }).error.code;
+    };
+
+    assert.equal(await claimAgainOnX(), 401, 'not while its pairing is active');
+    assert.equal((await fetch(`/api/v1/host/devices/${onX.deviceId}/revoke`, json({ protocol: AUTH_PROTOCOL },
+      hostX.accessToken))).status, 200);
+    clock.tick(1_000);
+    assert.equal(await claimAgainOnX(), 401, 'nor after the Host revoked it, even through a fresh grant');
+    assert.equal(await challenge(hostX.hostId), 'DEVICE_REVOKED');
+
+    // The revocation belongs to Host X.
+    assert.equal(repos.isRevokedPublicKey(JSON.stringify(publicKey), hostX.hostId), true);
+    assert.equal(repos.isRevokedPublicKey(JSON.stringify(publicKey), hostY.hostId), false);
+    assert.equal(await challenge(hostY.hostId), 200);
+    assert.equal((await fetch('/api/v1/ws-tickets', json({ protocol: AUTH_PROTOCOL, host_id: hostY.hostId },
+      onY.accessToken))).status, 200);
+    const hostZ = await enrollHost(fetch);
+    const onZ = await pairDevice(fetch, hostZ.accessToken, hostZ.hostId, { keys: onX.keys, browserId: onX.browserId });
+    assert.ok(onZ.deviceId);
+    assert.ok(repos.keyAdmittedPairing(repos.getPairing(onZ.deviceId)));
+  } finally { handle.shutdown(); }
 });

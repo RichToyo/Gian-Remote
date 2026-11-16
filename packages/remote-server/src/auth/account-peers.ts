@@ -18,7 +18,7 @@ import {
 import type { Clock } from '../clock.js';
 import { hashSecret, hashesEqual, randomSecret } from '../crypto-hash.js';
 import type { RemoteDb } from '../storage/db.js';
-import { pairingKeyHash } from '../storage/repositories.js';
+import { recordRevokedPairingKey } from '../storage/repositories.js';
 import { GitHubIdentityVerifier } from './github-identity.js';
 import { verifyP256Signature } from './signatures.js';
 
@@ -288,11 +288,7 @@ export class RemoteAccountPeers {
         for (const pairing of pairings) {
           this.db.prepare('UPDATE device_host_pairings SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
             .run(now, pairing.id);
-          this.db.prepare(`INSERT INTO revoked_pairing_keys
-            (public_key_hash, public_key_jwk, host_id, device_id, revoked_at)
-            VALUES (?, ?, ?, ?, ?) ON CONFLICT(public_key_hash) DO NOTHING`)
-            .run(pairingKeyHash(pairing.public_key_jwk), pairing.public_key_jwk,
-              pairing.host_id, pairing.id, now);
+          recordRevokedPairingKey(this.db, pairing, now);
         }
       }
       this.db.prepare('DELETE FROM account_challenges WHERE role = ? AND installation_id = ?')

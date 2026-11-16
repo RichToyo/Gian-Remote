@@ -57,7 +57,7 @@ test('server identity proof binds the caller nonce and a replaced fingerprint is
   } finally { f.handle.shutdown(); }
 });
 
-test('server identity discovery counts toward the auth rate limit', async () => {
+test('server identity discovery counts toward the auth rate limit, at six times its per-address limit', async () => {
   const f = await makeRemoteTestApp({ config: { authRateLimitPerMinute: 1 } });
   try {
     let requests = 0;
@@ -69,7 +69,7 @@ test('server identity discovery counts toward the auth rate limit', async () => 
       if (response.status === 429) retryAfter = response.headers.get('retry-after');
       return response;
     };
-    await discoverServerIdentity({ origin: f.publicOrigin, fetchFn, now: () => f.clock.now });
+    for (let index = 0; index < 6; index += 1) await discoverServerIdentity({ origin: f.publicOrigin, fetchFn, now: () => f.clock.now });
     await assert.rejects(
       () => discoverServerIdentity({ origin: f.publicOrigin, fetchFn, now: () => f.clock.now }),
       (error: unknown) => error instanceof RemoteProtocolError && error.code === 'RATE_LIMITED'
@@ -80,9 +80,9 @@ test('server identity discovery counts toward the auth rate limit', async () => 
       () => discoverServerIdentity({ origin: f.publicOrigin, fetchFn, now: () => f.clock.now }),
       (error: unknown) => error instanceof RemoteProtocolError && error.code === 'RATE_LIMITED',
     );
-    assert.equal(requests, 2, 'cooldown does not send another request');
+    assert.equal(requests, 7, 'cooldown does not send another request');
     f.clock.tick(60_000);
     await discoverServerIdentity({ origin: f.publicOrigin, fetchFn, now: () => f.clock.now });
-    assert.equal(requests, 3);
+    assert.equal(requests, 8);
   } finally { f.handle.shutdown(); }
 });

@@ -93,6 +93,12 @@ export type ControllerEnrollmentClaim =
   | { status: 'claimed'; device: ControllerDeviceRow }
   | { status: 'invalid' | 'expired' | 'consumed' | 'conflict' };
 
+export interface PairingClaim {
+  pairing: DevicePairingRow;
+  /** The installation's previous pairing with this Host, now deleted. */
+  replaced?: DevicePairingRow;
+}
+
 export class RemoteRepositories {
   constructor(
     readonly db: RemoteDb,
@@ -402,6 +408,16 @@ export class RemoteRepositories {
     return (this.db.prepare('SELECT changes() AS changes').get() as { changes: number }).changes === 1;
   }
 
+  /**
+   * Claim a fresh grant as a pending pairing; only the Host's confirmation
+   * admits it. A browser keeps the strict rules: no claim while its pairing
+   * with this Host is active, none with the key that pairing used, none with
+   * a key revoked on this Host. An admitted controller (its controller token
+   * already checked by the caller) claiming with its own admitted key may
+   * pair again with that key: the claim replaces its pairing with this Host
+   * whether that one is active, pending or revoked, and a revocation of the
+   * key on this Host does not block it. A key revoked on every Host does.
+   */
   claimGrantAndUpsertPairing(input: {
     grantId: string;
     browserInstallationId: string;
@@ -409,19 +425,35 @@ export class RemoteRepositories {
     publicKeyJwk: string;
     platform: string;
     userAgent: string;
-  }): DevicePairingRow | undefined {
+    /** The admitted controller key of the installation, only for a claim
+     *  that proved it with that installation's controller token. */
+    admittedControllerKeyJwk?: string;
+  }): PairingClaim | undefined {
     return this.db.transaction(() => {
-      if (this.isRevokedPublicKey(input.publicKeyJwk)) return undefined;
+      const keyHash = pairingKeyHash(input.publicKeyJwk);
+      const controllerRepair = input.admittedControllerKeyJwk !== undefined
+        && pairingKeyHash(input.admittedControllerKeyJwk) === keyHash;
+      if (controllerRepair
+        ? this.isRevokedOnEveryHost(input.publicKeyJwk)
+        : this.isRevokedPublicKey(input.publicKeyJwk, input.hostId)) return undefined;
+      // One active pairing per key on a Host, as the Host keeps one active
+      // record per key: another installation never takes over a paired key.
+      if (this.keyPairedByAnotherInstallation(input.hostId, input.browserInstallationId, keyHash)) return undefined;
       const existing = this.getPairingByBrowserHost(input.browserInstallationId, input.hostId);
-      if (existing?.confirmed_at && !existing.revoked_at) return undefined;
-      if (existing?.public_key_jwk && pairingKeyHash(existing.public_key_jwk) === pairingKeyHash(input.publicKeyJwk)) {
-        return undefined;
-      }
+      const sameKey = Boolean(existing?.public_key_jwk) && pairingKeyHash(existing!.public_key_jwk) === keyHash;
+      const active = Boolean(existing?.confirmed_at && !existing.revoked_at);
+      if (existing && (active || sameKey) && !(controllerRepair && sameKey)) return undefined;
       const pairingId = generateCanonicalId();
       if (!this.claimGrant(input.grantId, pairingId)) return undefined;
       if (existing) {
-        this.recordRevokedKey(existing);
+        // The same key now belongs to the new pairing, so it is not recorded
+        // as revoked. Another key the replaced pairing held is.
+        if (!sameKey) this.recordRevokedKey(existing);
         this.db.prepare('DELETE FROM device_host_pairings WHERE id = ?').run(existing.id);
+        // A challenge issued for the replaced pairing never logs in to this one.
+        this.db.prepare(`UPDATE device_challenges SET used_at = ?
+          WHERE browser_installation_id = ? AND host_id = ? AND used_at IS NULL`)
+          .run(this.now(), input.browserInstallationId, input.hostId);
       }
       this.db.prepare(`
         INSERT INTO device_host_pairings(
@@ -438,8 +470,15 @@ export class RemoteRepositories {
         this.now(),
         generateCanonicalId(),
       );
-      return this.getPairing(pairingId);
+      return { pairing: this.getPairing(pairingId)!, replaced: existing };
     })();
+  }
+
+  private keyPairedByAnotherInstallation(hostId: string, browserInstallationId: string, keyHash: string): boolean {
+    const rows = this.db.prepare(`SELECT public_key_jwk FROM device_host_pairings
+      WHERE host_id = ? AND browser_installation_id != ? AND confirmed_at IS NOT NULL AND revoked_at IS NULL
+        AND length(public_key_jwk) > 0`).all(hostId, browserInstallationId) as Array<{ public_key_jwk: string }>;
+    return rows.some(row => pairingKeyHash(row.public_key_jwk) === keyHash);
   }
 
   confirmGrant(pairingId: string, decision: 'confirm' | 'reject'): PairingGrantRow | undefined {
@@ -512,7 +551,7 @@ export class RemoteRepositories {
 
   keyAdmittedPairing(pairing: DevicePairingRow | undefined): boolean {
     if (!pairing || pairing.revoked_at !== null || pairing.confirmed_at === null || !pairing.public_key_jwk) return false;
-    if (this.isRevokedPublicKey(pairing.public_key_jwk)) return false;
+    if (this.pairingKeyRevoked(pairing)) return false;
     if (!this.keyAdmittedHost(this.getHost(pairing.host_id))) return false;
     if (pairing.account_peer_id && this.accountPeerRevoked('controller', pairing.account_peer_id)) return false;
     return true;
@@ -546,18 +585,27 @@ export class RemoteRepositories {
   }
 
   recordRevokedKey(pairing: DevicePairingRow): void {
-    if (!pairing.public_key_jwk) return;
-    this.db.prepare(`
-      INSERT INTO revoked_pairing_keys(public_key_hash, public_key_jwk, host_id, device_id, revoked_at)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(public_key_hash) DO NOTHING
-    `).run(pairingKeyHash(pairing.public_key_jwk), pairing.public_key_jwk, pairing.host_id, pairing.id, this.now());
+    recordRevokedPairingKey(this.db, pairing, pairing.revoked_at ?? this.now());
   }
 
-  isRevokedPublicKey(publicKeyJwk: string): boolean {
-    const row = this.db.prepare('SELECT public_key_hash FROM revoked_pairing_keys WHERE public_key_hash = ?')
-      .get(pairingKeyHash(publicKeyJwk)) as { public_key_hash: string } | undefined;
-    return Boolean(row);
+  /** The key was revoked on this Host, or on every Host. */
+  isRevokedPublicKey(publicKeyJwk: string, hostId: string): boolean {
+    return Boolean(this.db.prepare(`SELECT 1 FROM revoked_pairing_keys
+      WHERE public_key_hash = ? AND host_id IN ('', ?)`).get(pairingKeyHash(publicKeyJwk), hostId));
+  }
+
+  private isRevokedOnEveryHost(publicKeyJwk: string): boolean {
+    return Boolean(this.db.prepare(`SELECT 1 FROM revoked_pairing_keys
+      WHERE public_key_hash = ? AND host_id = ''`).get(pairingKeyHash(publicKeyJwk)));
+  }
+
+  /** A revocation of the key on this Host blocks the pairings created at or
+   *  before it, so what it revoked stays dead. A pairing claimed later
+   *  through a fresh grant and confirmed by the Host is admitted. */
+  private pairingKeyRevoked(pairing: DevicePairingRow): boolean {
+    return Boolean(this.db.prepare(`SELECT 1 FROM revoked_pairing_keys
+      WHERE public_key_hash = ? AND (host_id = '' OR (host_id = ? AND revoked_at >= ?))`)
+      .get(pairingKeyHash(pairing.public_key_jwk), pairing.host_id, pairing.created_at));
   }
 
   isDeviceRouteClosed(deviceId: string): boolean {
@@ -820,6 +868,23 @@ export class RemoteRepositories {
     this.db.prepare('DELETE FROM device_challenges WHERE expires_at <= ?').run(now);
     this.db.prepare('DELETE FROM relay_outbox').run();
   }
+}
+
+/** Record a pairing's key as revoked on its Host. A later revocation of the
+ *  same key on that Host moves revoked_at forward; it never moves back. */
+export function recordRevokedPairingKey(
+  db: RemoteDb,
+  pairing: { id: string; host_id: string; public_key_jwk: string },
+  revokedAt: number,
+): void {
+  if (!pairing.public_key_jwk) return;
+  db.prepare(`
+    INSERT INTO revoked_pairing_keys(public_key_hash, host_id, public_key_jwk, device_id, revoked_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(public_key_hash, host_id) DO UPDATE SET
+      device_id = excluded.device_id, revoked_at = excluded.revoked_at
+    WHERE excluded.revoked_at > revoked_pairing_keys.revoked_at
+  `).run(pairingKeyHash(pairing.public_key_jwk), pairing.host_id, pairing.public_key_jwk, pairing.id, revokedAt);
 }
 
 export function pairingKeyHash(publicKeyJwk: string): string {

@@ -54,6 +54,11 @@ function controlFrame(
   };
 }
 
+/** A device binding whose route id is its device id, as the Server assigns. */
+function deviceRoute(binding: ReturnType<typeof ids>): ReturnType<typeof ids> {
+  return { ...binding, route: binding.device };
+}
+
 function fakePeer(
   role: 'host' | 'device',
   binding: ReturnType<typeof ids>,
@@ -263,6 +268,67 @@ test('content window releases after the peer acks those sequences', () => {
   });
   router.handleFrame(binding.connection, controlFrame(binding, CONTENT_WINDOW_CHUNKS, { frame_class: 'content' }));
   assert.equal(router.content.inFlight(binding.connection) <= CONTENT_WINDOW_CHUNKS, true);
+});
+
+test('a Host socket keeps one content window per device route', () => {
+  const { router, online } = createRouter();
+  const hostId = generateCanonicalId();
+  const hostConnection = generateCanonicalId();
+  const devices = [ids(), ids()].map((binding) => deviceRoute({ ...binding, host: hostId }));
+  online(hostId);
+  router.attach({ ...fakePeer('host', { ...devices[0]!, connection: hostConnection }), routeId: hostId });
+  for (const device of devices) router.attach(fakePeer('device', device));
+  const hostContent = (device: typeof devices[number], sequence: number) => router.handleFrame(hostConnection,
+    controlFrame({ ...device, connection: hostConnection }, sequence, { frame_class: 'content' }));
+  // Two devices downloading at once each get the full window.
+  for (let sequence = 0; sequence < CONTENT_WINDOW_CHUNKS; sequence += 1) {
+    for (const device of devices) hostContent(device, sequence);
+  }
+  assert.equal(router.content.inFlight(hostConnection), CONTENT_WINDOW_CHUNKS * 2);
+  assert.throws(() => hostContent(devices[0]!, CONTENT_WINDOW_CHUNKS), /content window is full/);
+  // One device's ack frees only its own route.
+  router.handleFrame(devices[1]!.connection, { ...controlFrame(devices[1]!, 0), transport_ack: CONTENT_WINDOW_CHUNKS - 1 });
+  hostContent(devices[1]!, CONTENT_WINDOW_CHUNKS);
+  assert.throws(() => hostContent(devices[0]!, CONTENT_WINDOW_CHUNKS), /content window is full/);
+  assert.equal(router.content.inFlight(hostConnection, devices[0]!.route), CONTENT_WINDOW_CHUNKS);
+  assert.equal(router.content.inFlight(hostConnection, devices[1]!.route), 1);
+});
+
+test('a new handshake releases the Host content still in flight on that route', () => {
+  const { router, online } = createRouter();
+  const binding = deviceRoute(ids());
+  const other = deviceRoute({ ...ids(), host: binding.host });
+  const hostConnection = generateCanonicalId();
+  online(binding.host);
+  router.attach({ ...fakePeer('host', { ...binding, connection: hostConnection }), routeId: binding.host });
+  router.attach(fakePeer('device', binding));
+  router.attach(fakePeer('device', other));
+  for (let sequence = 0; sequence < CONTENT_WINDOW_CHUNKS; sequence += 1) {
+    router.handleFrame(hostConnection, controlFrame({ ...binding, connection: hostConnection }, sequence, { frame_class: 'content' }));
+  }
+  router.handleFrame(hostConnection, controlFrame({ ...other, connection: hostConnection }, 0, { frame_class: 'content' }));
+  // The device drops mid-download and comes back with a fresh session.
+  router.attach(fakePeer('device', { ...binding, connection: generateCanonicalId() }));
+  const jwk = { kty: 'EC' as const, crv: 'P-256' as const, x: 'a', y: 'b' };
+  router.handleHandshake(hostConnection, {
+    protocol: RELAY_PROTOCOL,
+    type: 'crypto.accept',
+    host_id: binding.host,
+    device_id: binding.device,
+    crypto_connection_id: generateCanonicalId(),
+    handshake_nonce: generateCanonicalId(),
+    host_generation: generateCanonicalId(),
+    host_identity: jwk,
+    host_ephemeral: jwk,
+    device_ephemeral: jwk,
+    signature: 'd',
+    sent_at: 2,
+  });
+  assert.equal(router.content.inFlight(hostConnection, binding.route), 0);
+  assert.equal(router.content.inFlight(hostConnection, other.route), 1);
+  for (let sequence = 0; sequence < CONTENT_WINDOW_CHUNKS; sequence += 1) {
+    router.handleFrame(hostConnection, controlFrame({ ...binding, connection: hostConnection }, sequence, { frame_class: 'content' }));
+  }
 });
 
 test('reattach does not replay ciphertext from a previous crypto generation', () => {

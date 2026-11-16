@@ -296,7 +296,7 @@ test('explicit account revoke propagates to legacy Host and pairing rows; logout
     assert.equal(f.handle.services.repos.getPairing(device.deviceId)!.revoked_at, null);
     f.handle.services.accounts.revoke('controller', device.accountPeerId);
     assert.notEqual(f.handle.services.repos.getPairing(device.deviceId)!.revoked_at, null);
-    assert.equal(f.handle.services.repos.isRevokedPublicKey(f.handle.services.repos.getPairing(device.deviceId)!.public_key_jwk), true);
+    assert.equal(f.handle.services.repos.isRevokedPublicKey(f.handle.services.repos.getPairing(device.deviceId)!.public_key_jwk, host.hostId), true);
     f.handle.services.accounts.revoke('host', host.accountPeerId);
     assert.notEqual(f.handle.services.repos.getHost(host.hostId)!.revoked_at, null);
   } finally { f.handle.shutdown(); }

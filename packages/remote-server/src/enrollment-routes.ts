@@ -9,12 +9,16 @@ import type { RemoteRepositories } from './storage/repositories.js';
 import { hashSecret, hashesEqual, randomSecret } from './crypto-hash.js';
 import { verifyEnrollmentPassword } from './auth/enrollment-password.js';
 import { SlidingWindowLimiter } from './auth/rate-limit.js';
+import { clientAddress } from './auth/client-address.js';
 
 const SESSION_COOKIE = 'gian_remote_enrollment';
 const CSRF_COOKIE = 'gian_remote_enrollment_csrf';
 const PATH = '/api/v1/enrollment';
 const SESSION_TTL = 60 * 60 * 1000;
 const PASSWORD_FAILURES = 5;
+/** Failures from every address together, so rotating addresses cannot
+ *  multiply password guesses. */
+const PASSWORD_GLOBAL_FAILURES = 20;
 const PASSWORD_WINDOW_MS = 15 * 60 * 1000;
 
 /** Issuance session for the deployer password. It is not a device credential
@@ -23,10 +27,7 @@ export function installEnrollmentRoutes(app: Hono, config: RemoteServerConfig,
   repos: RemoteRepositories): () => void {
   const cookieOptions = { path: PATH, secure: true, httpOnly: true, sameSite: 'Strict' as const };
   const failures = new SlidingWindowLimiter(config.now, PASSWORD_FAILURES, PASSWORD_WINDOW_MS);
-  const clientKey = (forwarded: string | undefined) => {
-    if (config.trustedProxy && forwarded) return forwarded.split(',')[0]?.trim() || 'unknown';
-    return 'direct';
-  };
+  const globalFailures = new SlidingWindowLimiter(config.now, PASSWORD_GLOBAL_FAILURES, PASSWORD_WINDOW_MS);
   const csrfCookie = (token: string) => hashSecret(token);
   const requireCsrf = (header: string | undefined, cookie: string | undefined) => {
     if (!header || header.length > 256 || !cookie || !hashesEqual(hashSecret(header), cookie)) {
@@ -57,13 +58,15 @@ export function installEnrollmentRoutes(app: Hono, config: RemoteServerConfig,
     return context.json({ protocol: AUTH_PROTOCOL, csrf_token: token });
   });
   app.post(`${PATH}/login`, async context => {
-    const ip = clientKey(context.req.header('x-forwarded-for'));
-    const failureKey = `login:${ip}`;
-    if (failures.blocked(failureKey)) return context.json({ error: { code: 'RATE_LIMITED' } }, 429);
+    const failureKey = `login:${clientAddress(config, context)}`;
+    const fail = () => { failures.record(failureKey); globalFailures.record('login'); };
+    if (failures.blocked(failureKey) || globalFailures.blocked('login')) {
+      return context.json({ error: { code: 'RATE_LIMITED' } }, 429);
+    }
     if (!config.enrollmentPasswordHash) return context.json({ error: { code: 'ENROLLMENT_DISABLED' } }, 403);
     try { requireCsrf(context.req.header('x-gian-csrf'), getCookie(context, CSRF_COOKIE)); }
     catch {
-      failures.record(failureKey);
+      fail();
       return context.json({ error: { code: 'AUTH_REQUIRED' } }, 403);
     }
     const body = parseClosed(enrollmentPasswordLoginRequestSchema, await context.req.json());
@@ -72,7 +75,7 @@ export function installEnrollmentRoutes(app: Hono, config: RemoteServerConfig,
     const presentedAdmin = hashesEqual(hashSecret(body.password), hashSecret(config.adminToken));
     const matches = !presentedAdmin && await verifyEnrollmentPassword(body.password, config.enrollmentPasswordHash);
     if (!matches) {
-      failures.record(failureKey);
+      fail();
       return context.json({ error: { code: 'AUTH_REQUIRED' } }, 401);
     }
     const token = randomSecret();

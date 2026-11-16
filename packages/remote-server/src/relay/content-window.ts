@@ -9,6 +9,9 @@ interface InFlightContent {
   routeId: string;
 }
 
+/** Content frames a sender has in flight, per route. A Host socket carries
+ *  every device route and each device acks only its own, so each route of a
+ *  connection gets its own window. A device connection has one route. */
 export class ContentFlowWindow {
   readonly #inFlight = new Map<string, InFlightContent[]>();
   readonly #contentFrameIds = new Set<string>();
@@ -18,7 +21,7 @@ export class ContentFlowWindow {
       throw new RemoteProtocolError('INVALID_FRAME', 'only content frames use the content window.');
     }
     const current = this.#inFlight.get(connectionId) ?? [];
-    if (current.length >= CONTENT_WINDOW_CHUNKS) {
+    if (this.inFlight(connectionId, frame.route_id) >= CONTENT_WINDOW_CHUNKS) {
       throw new RemoteProtocolError('RATE_LIMITED', 'content window is full.');
     }
     current.push({ sequence: frame.transport_sequence, routeId: frame.route_id });
@@ -42,8 +45,17 @@ export class ContentFlowWindow {
     this.#inFlight.delete(connectionId);
   }
 
-  inFlight(connectionId: string): number {
-    return this.#inFlight.get(connectionId)?.length ?? 0;
+  /** A new crypto session restarts the route's sequences, so content of the
+   *  old session would otherwise wait for acks that never come. */
+  dropRoute(connectionId: string, routeId: string): void {
+    const current = this.#inFlight.get(connectionId);
+    if (current) this.#inFlight.set(connectionId, current.filter((item) => item.routeId !== routeId));
+  }
+
+  /** In flight on the whole connection, or on one of its routes. */
+  inFlight(connectionId: string, routeId?: string): number {
+    const current = this.#inFlight.get(connectionId) ?? [];
+    return routeId === undefined ? current.length : current.filter((item) => item.routeId === routeId).length;
   }
 
   sawContentFrame(frameId: string): boolean {

@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { createNodeWebSocket } from '@hono/node-ws';
 
 import {
@@ -49,6 +49,7 @@ import { type RemoteServerConfig } from './config.js';
 import { hashSecret, hashesEqual, randomSecret } from './crypto-hash.js';
 import { logError } from './logging.js';
 import { SlidingWindowLimiter } from './auth/rate-limit.js';
+import { clientAddress } from './auth/client-address.js';
 import { clearRefreshCookie, readRefreshCookie, writeRefreshCookie } from './auth/cookies.js';
 import { TokenStore } from './auth/tokens.js';
 import { RemoteAccountPeers } from './auth/account-peers.js';
@@ -63,7 +64,7 @@ import { applySecurityHeaders } from './static/headers.js';
 import { loadAndVerifyManifest, type StaticManifest } from './static/manifest.js';
 import { serveRuntimeConfig, serveStaticArtifact } from './static/serve.js';
 import { openRemoteDatabase, type RemoteDb } from './storage/db.js';
-import { RemoteRepositories } from './storage/repositories.js';
+import { RemoteRepositories, type DevicePairingRow } from './storage/repositories.js';
 import { installEnrollmentRoutes } from './enrollment-routes.js';
 import { installControllerEnrollmentRoutes } from './controller-enrollment-routes.js';
 
@@ -88,33 +89,73 @@ export interface RemoteAppHandle {
   shutdown(): void;
 }
 
-const AUTH_PATHS = new Set([
-  '/api/v1/account/start',
-  '/api/v1/account/poll',
-  '/api/v1/account/logout',
-  '/api/v1/server-identity',
-  '/api/v1/enrollment/login',
-  '/api/v1/enrollment/logout',
-  '/api/v1/enrollment/tokens',
-  '/api/v1/enrollment/controller-tokens',
-  '/api/v1/admin/host-enrollments',
-  '/api/v1/admin/controller-enrollments',
-  '/api/v1/host-enrollments/claim',
-  '/api/v1/controller-enrollments/claim',
-  '/api/v1/controller-enrollments/host-claim',
-  '/api/v1/controller-migrations/challenge',
-  '/api/v1/controller-migrations/login',
-  '/api/v1/host/connector-challenge',
-  '/api/v1/host/connector-login',
-  '/api/v1/pairings/claim',
-  '/api/v1/sessions/controller-challenge',
-  '/api/v1/sessions/controller-login',
-  '/api/v1/sessions/device-challenge',
-  '/api/v1/sessions/device-login',
-  '/api/v1/sessions/refresh',
-  '/api/v1/sessions/logout',
-  '/api/v1/ws-tickets',
+/** How a POST auth route is rate limited. Every bucket is per path.
+ *  - address: one bucket per client address.
+ *  - public: an unauthenticated, cheap, read-only answer every client asks
+ *    for on every connect (the server identity proof). One bucket per client
+ *    address at the looser identity-address limit, since a household's
+ *    Hosts, controllers, phones and browsers share one address. No global
+ *    cap: anyone filling it would keep every client from connecting.
+ *  - guarded: an unauthenticated secret a client could guess (pairing code,
+ *    enrollment token, admin token, enrollment page password). One bucket per
+ *    client address, plus a global cap that rotating addresses or identities
+ *    cannot get around.
+ *  - identity: the request names a Host, controller, device or refresh family
+ *    that only its key or secret holder can use. One bucket per identity,
+ *    plus a looser one per client address, so one busy or hostile client
+ *    cannot lock other identities out. */
+type AuthRateRule =
+  | { scope: 'address' }
+  | { scope: 'public' }
+  | { scope: 'guarded' }
+  | { scope: 'identity'; from: 'body' | 'refresh_cookie' | 'bearer' };
+
+const ADDRESS: AuthRateRule = { scope: 'address' };
+const PUBLIC: AuthRateRule = { scope: 'public' };
+const GUARDED: AuthRateRule = { scope: 'guarded' };
+const BODY_IDENTITY: AuthRateRule = { scope: 'identity', from: 'body' };
+const REFRESH_IDENTITY: AuthRateRule = { scope: 'identity', from: 'refresh_cookie' };
+const BEARER_IDENTITY: AuthRateRule = { scope: 'identity', from: 'bearer' };
+
+const AUTH_RATE_RULES = new Map<string, AuthRateRule>([
+  ['/api/v1/account/start', ADDRESS],
+  ['/api/v1/account/poll', ADDRESS],
+  ['/api/v1/account/logout', ADDRESS],
+  ['/api/v1/server-identity', PUBLIC],
+  ['/api/v1/enrollment/login', GUARDED],
+  ['/api/v1/enrollment/logout', GUARDED],
+  ['/api/v1/enrollment/tokens', GUARDED],
+  ['/api/v1/enrollment/controller-tokens', GUARDED],
+  ['/api/v1/admin/host-enrollments', GUARDED],
+  ['/api/v1/admin/controller-enrollments', GUARDED],
+  ['/api/v1/host-enrollments/claim', GUARDED],
+  ['/api/v1/controller-enrollments/claim', GUARDED],
+  ['/api/v1/controller-enrollments/host-claim', BEARER_IDENTITY],
+  ['/api/v1/controller-migrations/challenge', BODY_IDENTITY],
+  ['/api/v1/controller-migrations/login', BODY_IDENTITY],
+  ['/api/v1/host/connector-challenge', BODY_IDENTITY],
+  ['/api/v1/host/connector-login', BODY_IDENTITY],
+  ['/api/v1/pairings/claim', GUARDED],
+  ['/api/v1/sessions/controller-challenge', BODY_IDENTITY],
+  ['/api/v1/sessions/controller-login', BODY_IDENTITY],
+  ['/api/v1/sessions/device-challenge', BODY_IDENTITY],
+  ['/api/v1/sessions/device-login', BODY_IDENTITY],
+  ['/api/v1/sessions/refresh', REFRESH_IDENTITY],
+  ['/api/v1/sessions/logout', REFRESH_IDENTITY],
+  ['/api/v1/ws-tickets', BEARER_IDENTITY],
 ]);
+
+/** One address may front several identities: a desktop with several
+ *  environments, or several people behind one NAT. Public routes take the
+ *  same per-address limit. */
+const IDENTITY_ADDRESS_LIMIT_FACTOR = 6;
+/** A guarded path takes this many per-address limits from everyone together. */
+const GUARDED_GLOBAL_LIMIT_FACTOR = 10;
+const MAX_RATE_IDENTITY_CHARS = 64;
+
+function rateIdentityPart(value: unknown): string | undefined {
+  return typeof value === 'string' && value && value.length <= MAX_RATE_IDENTITY_CHARS ? value : undefined;
+}
 
 function jsonError(code: string) {
   return {
@@ -126,11 +167,6 @@ function jsonError(code: string) {
 function bearer(header: string | undefined): string | undefined {
   if (!header?.startsWith('Bearer ')) return undefined;
   return header.slice(7).trim() || undefined;
-}
-
-function clientIp(config: RemoteServerConfig, forwarded: string | undefined): string {
-  if (config.trustedProxy && forwarded) return forwarded.split(',')[0]?.trim() || 'unknown';
-  return 'direct';
 }
 
 function originAllowed(config: RemoteServerConfig, origin: string | undefined): boolean {
@@ -184,6 +220,10 @@ export async function createRemoteApp(config: RemoteServerConfig): Promise<Remot
   const accountLogin = new RemoteAccountLogin(accounts, config.now, config.githubClientId, config.githubFetch);
   const limiter = new SlidingWindowLimiter(config.now, config.authRateLimitPerMinute);
   const accountPollLimiter = new SlidingWindowLimiter(config.now, Math.max(30, config.authRateLimitPerMinute));
+  const identityAddressLimiter = new SlidingWindowLimiter(config.now,
+    config.authRateLimitPerMinute * IDENTITY_ADDRESS_LIMIT_FACTOR);
+  const guardedGlobalLimiter = new SlidingWindowLimiter(config.now,
+    config.authRateLimitPerMinute * GUARDED_GLOBAL_LIMIT_FACTOR);
   const manifest = config.staticDir ? loadAndVerifyManifest(config.staticDir) : undefined;
   const services = {
     db, repos, tokens, accounts, presence, relay, identity, config, limiter, manifest,
@@ -218,6 +258,39 @@ export async function createRemoteApp(config: RemoteServerConfig): Promise<Remot
   const accountLeaseTimer = setInterval(closeUnauthorizedRoutes, 1000);
   accountLeaseTimer.unref();
 
+  /** The identity a request names, before the route checks any proof. */
+  const rateIdentity = async (from: 'body' | 'refresh_cookie' | 'bearer', context: Context): Promise<string | undefined> => {
+    if (from === 'refresh_cookie') return rateIdentityPart(familyIdFromCookie(readRefreshCookie(context)));
+    if (from === 'bearer') {
+      const token = bearer(context.req.header('authorization'));
+      const record = token ? tokens.get(token) : undefined;
+      return record ? `${record.role}:${record.deviceId ?? record.hostId}` : undefined;
+    }
+    // Hono caches the body, so the route still reads it. A malformed body
+    // fails there as before.
+    const body = await context.req.json().catch(() => undefined) as Record<string, unknown> | undefined;
+    const hostId = rateIdentityPart(body?.host_id);
+    const installationId = rateIdentityPart(body?.browser_installation_id);
+    return hostId || installationId ? `${installationId ?? ''}/${hostId ?? ''}` : undefined;
+  };
+  const rateBuckets = async (rule: AuthRateRule, path: string, context: Context) => {
+    const address = clientAddress(config, context);
+    if (rule.scope === 'address') {
+      const selected = path.endsWith('/account/poll') ? accountPollLimiter : limiter;
+      return [{ limiter: selected, key: `${address}:${path}` }];
+    }
+    if (rule.scope === 'public') return [{ limiter: identityAddressLimiter, key: `${address}:${path}` }];
+    if (rule.scope === 'guarded') {
+      return [{ limiter, key: `${address}:${path}` }, { limiter: guardedGlobalLimiter, key: path }];
+    }
+    const identity = await rateIdentity(rule.from, context);
+    return [
+      // A request naming no usable identity keeps the strict per-address limit.
+      { limiter, key: identity ? `identity:${identity}:${path}` : `${address}:${path}` },
+      { limiter: identityAddressLimiter, key: `${address}:${path}` },
+    ];
+  };
+
   app.use('*', async (context, next) => {
     await next();
     applySecurityHeaders(context.res.headers, config.publicOrigin.startsWith('https://'));
@@ -234,13 +307,17 @@ export async function createRemoteApp(config: RemoteServerConfig): Promise<Remot
       context.header('Access-Control-Allow-Credentials', 'true');
     }
     const path = new URL(context.req.url).pathname;
-    if (AUTH_PATHS.has(path) && context.req.method !== 'GET' && context.req.method !== 'OPTIONS') {
-      const ip = clientIp(config, context.req.header('x-forwarded-for'));
-      const selectedLimiter = path.endsWith('/account/poll') ? accountPollLimiter : limiter;
-      if (!selectedLimiter.allow(`${ip}:${path}`)) {
-        context.header('Retry-After', String(selectedLimiter.retryAfterSeconds(`${ip}:${path}`)));
+    const rule = AUTH_RATE_RULES.get(path);
+    if (rule && context.req.method !== 'GET' && context.req.method !== 'OPTIONS') {
+      const buckets = await rateBuckets(rule, path, context);
+      // A request is counted only once every bucket admits it.
+      const blocked = buckets.filter((bucket) => bucket.limiter.blocked(bucket.key));
+      if (blocked.length) {
+        context.header('Retry-After', String(Math.max(
+          ...blocked.map((bucket) => bucket.limiter.retryAfterSeconds(bucket.key)))));
         return context.json(jsonError('RATE_LIMITED'), 429);
       }
+      for (const bucket of buckets) bucket.limiter.record(bucket.key);
     }
     await next();
   });
@@ -426,6 +503,18 @@ export async function createRemoteApp(config: RemoteServerConfig): Promise<Remot
     return record;
   };
 
+  /** Close a pairing's live routes and access tokens. Once its installation
+   *  has no other confirmed pairing, its refresh families end too. */
+  const endPairingAccess = (hostId: string, pairing: DevicePairingRow): void => {
+    relay.closeDevice(hostId, pairing.id);
+    tokens.revokeDevice(pairing.id);
+    const remaining = repos.listPairingsForBrowser(pairing.browser_installation_id)
+      .filter((row) => row.confirmed_at && !row.revoked_at);
+    if (remaining.length === 0) {
+      repos.revokeBrowserFamilies(pairing.browser_installation_id);
+    }
+  };
+
   app.post('/api/v1/controller-enrollments/host-claim', async context => {
     context.header('Cache-Control', 'no-store');
     const hostAuth = requireHost(context);
@@ -494,7 +583,7 @@ export async function createRemoteApp(config: RemoteServerConfig): Promise<Remot
     if (repos.countHostPairings(grant.host_id) >= config.maxDevicesPerHost) {
       return context.json(jsonError('RATE_LIMITED'), 429);
     }
-    const pairing = db.transaction(() => {
+    const { pairing, replaced } = db.transaction(() => {
       repos.ensureBrowser(body.browser_installation_id);
       const created = repos.claimGrantAndUpsertPairing({
         grantId: grant.id,
@@ -503,10 +592,14 @@ export async function createRemoteApp(config: RemoteServerConfig): Promise<Remot
         publicKeyJwk: JSON.stringify(body.device_public_key),
         platform: body.platform,
         userAgent: body.user_agent,
+        admittedControllerKeyJwk: body.controller_admission === 1 ? admittedController!.public_key_jwk : undefined,
       });
       if (!created) throw new RemoteProtocolError('AUTH_REQUIRED', 'pairing unavailable');
       return created;
     })();
+    // The replaced pairing ends as a revoke would end it, without recording
+    // its key as revoked when the new pairing holds the same key.
+    if (replaced) endPairingAccess(grant.host_id, replaced);
     relay.notifyHost(grant.host_id, parseClosed(relayNoticeSchema, {
       protocol: 'gian.relay/1',
       type: 'pairing.claimed',
@@ -747,16 +840,16 @@ export async function createRemoteApp(config: RemoteServerConfig): Promise<Remot
 
   const finalizeDeviceRevoke = (hostId: string, deviceId: string): void => {
     const pairing = repos.getPairing(deviceId);
-    if (!pairing || pairing.host_id !== hostId) return;
+    if (!pairing) {
+      // A re-pair replaced this pairing; its late self-revoke ack has nothing
+      // left to revoke.
+      repos.markTombstoneDeliveredFor(hostId, deviceId);
+      return;
+    }
+    if (pairing.host_id !== hostId) return;
     if (!pairing.revoked_at) repos.revokePairing(pairing.id);
     else repos.recordRevokedKey(pairing);
-    relay.closeDevice(hostId, deviceId);
-    tokens.revokeDevice(deviceId);
-    const remaining = repos.listPairingsForBrowser(pairing.browser_installation_id)
-      .filter((row) => row.confirmed_at && !row.revoked_at);
-    if (remaining.length === 0) {
-      repos.revokeBrowserFamilies(pairing.browser_installation_id);
-    }
+    endPairingAccess(hostId, pairing);
     repos.markTombstoneDeliveredFor(hostId, deviceId);
   };
 
@@ -766,14 +859,17 @@ export async function createRemoteApp(config: RemoteServerConfig): Promise<Remot
     parseClosed(hostRevokeDeviceRequestSchema, await context.req.json().catch(() => ({ protocol: AUTH_PROTOCOL })));
     const deviceId = context.req.param('id');
     const pairing = repos.getPairing(deviceId);
-    if (!pairing || pairing.host_id !== hostAuth.hostId) {
+    if (pairing && pairing.host_id !== hostAuth.hostId) {
       return context.json(jsonError('DEVICE_NOT_PAIRED'), 401);
     }
-    finalizeDeviceRevoke(hostAuth.hostId, pairing.id);
+    // Idempotent: with no pairing left under that id (a re-pair replaced and
+    // deleted it), there is nothing to revoke, so the Host's revocation is
+    // done. Older Hosts that never settle a refusal recover through this.
+    finalizeDeviceRevoke(hostAuth.hostId, deviceId);
     return context.json({
       protocol: AUTH_PROTOCOL,
       host_id: hostAuth.hostId,
-      device_id: pairing.id,
+      device_id: deviceId,
       status: 'revoked',
     });
   });

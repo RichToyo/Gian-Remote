@@ -378,6 +378,22 @@ export interface RemoteEnvironmentStatus {
   server_origin: string;
   pending: boolean;
   connected: boolean;
+  /** Settings status from the controller's own state. `connecting`: a
+   *  connection is due or under way; `reconnecting`: a link that was live
+   *  within the last two minutes dropped and is being restored;
+   *  `offline`: the link dropped or the last attempt failed; `idle`: paired,
+   *  and no session needs a connection yet. */
+  status: 'connected' | 'connecting' | 'reconnecting' | 'pending' | 'offline' | 'idle' | 'removed';
+  /** Removed in Settings (epoch ms). Never connected or offered for new
+   *  work; its sessions stay as read-only history until Restore. */
+  removed_at: number | null;
+  /** Last time this Mac held a live connection to the Host (epoch ms). */
+  last_seen_at: number | null;
+  /** Why the last connection attempt failed, while not connected. */
+  last_error?: {
+    status: 'offline' | 'auth_required' | 'unavailable' | 'history_reset';
+    reason?: 'pairing' | 'server_identity' | 'host_key' | 'not_found' | 'denied' | 'unsupported';
+  };
 }
 
 /** Full Remote Controller environment snapshot, pushed when any

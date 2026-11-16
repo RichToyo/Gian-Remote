@@ -4,11 +4,14 @@ import { test } from 'node:test';
 import {
   AUTH_PROTOCOL,
   ENROLLMENT_TTL_MS,
+  PAIRING_TTL_MS,
   RELAY_PROTOCOL,
   controllerEnrollmentClaimResultSchema,
   exportPublicJwk,
   generateCanonicalId,
   generateP256SigningKeyPair,
+  selfRevokePayload,
+  signBytes,
 } from '@gian/remote-protocol';
 
 import {
@@ -137,6 +140,60 @@ function openDeviceSocket(wsUrl: string, ticket: string) {
     boundReject?.(new Error('device socket failed'));
   });
   return { bound, closed, close: () => ws.close() };
+}
+
+interface AdmittedController { browserId: string; keys: CryptoKeyPair; accessToken: string }
+
+/** A desktop Gian: its Host identity key is admitted as its controller key. */
+async function enrollDesktopController(fetch: TestFetch): Promise<AdmittedController> {
+  const desktop = await enrollHost(fetch);
+  return {
+    browserId: desktop.hostId,
+    keys: desktop.keys,
+    accessToken: await loginController(fetch, desktop.hostId, desktop.keys),
+  };
+}
+
+async function claimAsController(fetch: TestFetch, controller: AdmittedController, code: string, keys = controller.keys) {
+  return await fetch('/api/v1/pairings/claim', post({
+    protocol: AUTH_PROTOCOL,
+    browser_installation_id: controller.browserId,
+    device_public_key: await exportPublicJwk(keys.publicKey),
+    platform: 'macOS',
+    user_agent: 'Gian Desktop',
+    controller_admission: 1,
+    code,
+  }, controller.accessToken));
+}
+
+/** A fresh grant, claimed by the controller with its key and confirmed by the Host. */
+async function pairController(fetch: TestFetch, host: { hostId: string; accessToken: string }, controller: AdmittedController) {
+  const grant = await createGrant(fetch, host.accessToken);
+  const claimed = await claimAsController(fetch, controller, grant.code);
+  assert.equal(claimed.status, 200);
+  const { pairing_id: pairingId } = await claimed.json() as { pairing_id: string };
+  assert.equal((await confirmPairing(fetch, pairingId, host.accessToken)).status, 200);
+  const device = await loginDevice(fetch, host.hostId, controller.browserId, controller.keys);
+  assert.equal(device.body.device_id, pairingId);
+  return { code: grant.code, pairingId, accessToken: device.body.access_token, cookie: cookieHeader(device.cookies) };
+}
+
+/** 200, or the refusal code of a device challenge. */
+async function deviceChallenge(fetch: TestFetch, hostId: string, browserId: string): Promise<number | string> {
+  const response = await fetch('/api/v1/sessions/device-challenge', post({
+    protocol: AUTH_PROTOCOL,
+    browser_installation_id: browserId,
+    host_id: hostId,
+  }));
+  return response.status === 200 ? 200 : (await response.json() as { error: { code: string } }).error.code;
+}
+
+async function ticketStatus(fetch: TestFetch, hostId: string, accessToken: string): Promise<number> {
+  return (await fetch('/api/v1/ws-tickets', post({ protocol: AUTH_PROTOCOL, host_id: hostId }, accessToken))).status;
+}
+
+async function refreshStatus(fetch: TestFetch, hostId: string, cookie: string): Promise<number> {
+  return (await fetch('/api/v1/sessions/refresh', post({ protocol: AUTH_PROTOCOL, host_id: hostId }, undefined, cookie))).status;
 }
 
 test('iOS and Host claims share one short-lived admin enrollment token', async () => {
@@ -437,4 +494,189 @@ test('controller revocation blocks pairing, device sessions, refresh, tickets, a
     socket?.close();
     listened.close();
   }
+});
+
+test('an admitted controller pairs its own key again over an active pairing only through a fresh grant the Host confirms', async () => {
+  const f = await makeRemoteTestApp({ config: { authRateLimitPerMinute: 1_000 } });
+  const listened = await listenRemoteApp(f.handle, 0);
+  let socket: ReturnType<typeof openDeviceSocket> | undefined;
+  try {
+    const repos = f.handle.services.repos;
+    const host = await enrollHost(f.fetch);
+    const desktop = await enrollDesktopController(f.fetch);
+    const publicKeyJwk = JSON.stringify(await exportPublicJwk(desktop.keys.publicKey));
+    const first = await pairController(f.fetch, host, desktop);
+    const ticket = await (await f.fetch('/api/v1/ws-tickets', post({
+      protocol: AUTH_PROTOCOL,
+      host_id: host.hostId,
+    }, first.accessToken))).json() as { ticket: string };
+    socket = openDeviceSocket(listened.wsUrl, ticket.ticket);
+    await socket.bound;
+
+    // No fresh grant (unknown, consumed or expired), or a fresh one with
+    // another key: the active pairing stays as it is.
+    const expiring = await createGrant(f.fetch, host.accessToken);
+    f.clock.tick(PAIRING_TTL_MS + 1);
+    for (const code of ['ZZZZ-ZZZZ', first.code, expiring.code]) {
+      assert.equal((await claimAsController(f.fetch, desktop, code)).status, 401);
+    }
+    const otherKey = await claimAsController(f.fetch, desktop, (await createGrant(f.fetch, host.accessToken)).code,
+      await generateP256SigningKeyPair());
+    assert.equal(otherKey.status, 401, 'another key cannot replace an active pairing');
+    const borrowed = await f.fetch('/api/v1/pairings/claim', post({
+      protocol: AUTH_PROTOCOL,
+      browser_installation_id: generateCanonicalId(),
+      device_public_key: await exportPublicJwk(desktop.keys.publicKey),
+      platform: 'macOS',
+      user_agent: 'Browser',
+      code: (await createGrant(f.fetch, host.accessToken)).code,
+    }));
+    assert.equal(borrowed.status, 401, 'another installation cannot take over the paired key');
+    assert.ok(repos.keyAdmittedPairing(repos.getPairing(first.pairingId)));
+    const staleChallenge = await (await f.fetch('/api/v1/sessions/device-challenge', post({
+      protocol: AUTH_PROTOCOL,
+      browser_installation_id: desktop.browserId,
+      host_id: host.hostId,
+    }))).json() as { challenge_id: string };
+
+    const claimed = await claimAsController(f.fetch, desktop, (await createGrant(f.fetch, host.accessToken)).code);
+    assert.equal(claimed.status, 200);
+    const second = await claimed.json() as { pairing_id: string; status: string };
+    assert.equal(second.status, 'pending_confirmation');
+    assert.notEqual(second.pairing_id, first.pairingId);
+    // The claim ends the replaced pairing as a revoke would, but does not
+    // record the key as revoked: the new pairing holds it.
+    assert.ok([4001, 4003].includes(await socket.closed));
+    assert.equal(repos.getPairing(first.pairingId), undefined);
+    assert.equal(await ticketStatus(f.fetch, host.hostId, first.accessToken), 401);
+    assert.equal(await refreshStatus(f.fetch, host.hostId, first.cookie), 401);
+    assert.equal(repos.isRevokedPublicKey(publicKeyJwk, host.hostId), false);
+    assert.equal(await deviceChallenge(f.fetch, host.hostId, desktop.browserId), 'DEVICE_NOT_PAIRED',
+      'nothing is admitted before the Host confirms');
+
+    assert.equal((await confirmPairing(f.fetch, second.pairing_id, host.accessToken)).status, 200);
+    const stale = await f.fetch('/api/v1/sessions/device-login', post({
+      protocol: AUTH_PROTOCOL,
+      browser_installation_id: desktop.browserId,
+      host_id: host.hostId,
+      challenge_id: staleChallenge.challenge_id,
+      signature: await signChallenge(desktop.keys.privateKey, staleChallenge.challenge_id),
+    }));
+    assert.equal(stale.status, 401, 'a challenge of the replaced pairing does not log in to the new one');
+    const relogin = await loginDevice(f.fetch, host.hostId, desktop.browserId, desktop.keys);
+    assert.equal(relogin.body.device_id, second.pairing_id);
+    assert.equal(await ticketStatus(f.fetch, host.hostId, relogin.body.access_token), 200);
+    assert.equal(await ticketStatus(f.fetch, host.hostId, first.accessToken), 401);
+  } finally {
+    socket?.close();
+    listened.close();
+  }
+});
+
+test('after a Host revoke or a self-revoke, an admitted controller pairs its key again only through a fresh grant the Host confirms', async () => {
+  const f = await makeRemoteTestApp({ config: { authRateLimitPerMinute: 1_000 } });
+  try {
+    const repos = f.handle.services.repos;
+    const host = await enrollHost(f.fetch);
+    const phone = await enrollNativeController(f.fetch, 'iOS');
+    const publicKeyJwk = JSON.stringify(await exportPublicJwk(phone.keys.publicKey));
+    const first = await pairController(f.fetch, host, phone);
+
+    assert.equal((await f.fetch(`/api/v1/host/devices/${first.pairingId}/revoke`, post({
+      protocol: AUTH_PROTOCOL,
+    }, host.accessToken))).status, 200);
+    assert.equal(repos.isRevokedPublicKey(publicKeyJwk, host.hostId), true);
+    assert.equal(await deviceChallenge(f.fetch, host.hostId, phone.browserId), 'DEVICE_REVOKED');
+    f.clock.tick(1_000);
+
+    // A claim the Host rejects pairs nothing, and its grant is spent.
+    const rejectedGrant = await createGrant(f.fetch, host.accessToken);
+    const pending = await claimAsController(f.fetch, phone, rejectedGrant.code);
+    assert.equal(pending.status, 200);
+    const pendingId = (await pending.json() as { pairing_id: string }).pairing_id;
+    assert.equal(await deviceChallenge(f.fetch, host.hostId, phone.browserId), 'DEVICE_NOT_PAIRED');
+    assert.equal((await f.fetch(`/api/v1/pairings/${pendingId}/confirm`, post({
+      protocol: AUTH_PROTOCOL,
+      pairing_id: pendingId,
+      decision: 'reject',
+    }, host.accessToken))).status, 200);
+    assert.equal(await deviceChallenge(f.fetch, host.hostId, phone.browserId), 'DEVICE_NOT_PAIRED');
+    assert.equal((await claimAsController(f.fetch, phone, rejectedGrant.code)).status, 401);
+
+    const second = await pairController(f.fetch, host, phone);
+    assert.notEqual(second.pairingId, first.pairingId);
+
+    const signedAt = f.clock.now;
+    const selfRevoke = await f.fetch(`/api/v1/hosts/${host.hostId}/pairing`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${second.accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        protocol: AUTH_PROTOCOL,
+        host_id: host.hostId,
+        signed_at: signedAt,
+        signature: await signBytes(phone.keys.privateKey, new TextEncoder().encode(selfRevokePayload({
+          hostId: host.hostId,
+          deviceId: second.pairingId,
+          signedAt,
+        }))),
+      }),
+    });
+    assert.equal(selfRevoke.status, 200);
+    f.handle.services.finalizeDeviceRevoke(host.hostId, second.pairingId);
+    assert.equal(await deviceChallenge(f.fetch, host.hostId, phone.browserId), 'DEVICE_REVOKED');
+    f.clock.tick(1_000);
+
+    const third = await pairController(f.fetch, host, phone);
+    for (const old of [first, second]) {
+      assert.equal(repos.getPairing(old.pairingId), undefined);
+      assert.equal(await ticketStatus(f.fetch, host.hostId, old.accessToken), 401);
+      assert.equal(await refreshStatus(f.fetch, host.hostId, old.cookie), 401);
+    }
+    assert.equal(await ticketStatus(f.fetch, host.hostId, third.accessToken), 200);
+    assert.equal(await refreshStatus(f.fetch, host.hostId, third.cookie), 200);
+    // The revocation still covers what it revoked: a pairing of the key on
+    // this Host created before it is refused.
+    assert.equal(repos.keyAdmittedPairing({ ...repos.getPairing(third.pairingId)!, created_at: signedAt }), false);
+  } finally { f.handle.shutdown(); }
+});
+
+test('a Host revoke of a pairing a re-pair replaced is done, and another Host still cannot revoke a pairing', async () => {
+  const f = await makeRemoteTestApp({ config: { authRateLimitPerMinute: 1_000 } });
+  try {
+    const repos = f.handle.services.repos;
+    const host = await enrollHost(f.fetch);
+    const other = await enrollHost(f.fetch);
+    const desktop = await enrollDesktopController(f.fetch);
+    const first = await pairController(f.fetch, host, desktop);
+    // Pairing the same key again replaces the first pairing and deletes its row.
+    const second = await pairController(f.fetch, host, desktop);
+    assert.equal(repos.getPairing(first.pairingId), undefined);
+    const revoke = (deviceId: string, token?: string) =>
+      f.fetch(`/api/v1/host/devices/${deviceId}/revoke`, post({ protocol: AUTH_PROTOCOL }, token));
+
+    // The Host removing its record of the replaced pairing: nothing is left to
+    // revoke, so the revocation is done, every time it is retried.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const settled = await revoke(first.pairingId, host.accessToken);
+      assert.equal(settled.status, 200);
+      assert.deepEqual(await settled.json(), {
+        protocol: AUTH_PROTOCOL, host_id: host.hostId, device_id: first.pairingId, status: 'revoked',
+      });
+    }
+    assert.equal(repos.getPairing(second.pairingId)?.revoked_at, null, 'the replacing pairing is untouched');
+    assert.equal(await ticketStatus(f.fetch, host.hostId, second.accessToken), 200);
+
+    // Another Host's pairing stays refused, and so does a call without a Host token.
+    const foreign = await revoke(second.pairingId, other.accessToken);
+    assert.equal(foreign.status, 401);
+    assert.equal((await foreign.json() as { error: { code: string } }).error.code, 'DEVICE_NOT_PAIRED');
+    assert.equal((await revoke(first.pairingId)).status, 401);
+    assert.equal(repos.getPairing(second.pairingId)?.revoked_at, null);
+    assert.equal(await ticketStatus(f.fetch, host.hostId, second.accessToken), 200);
+
+    // Its own Host still revokes it.
+    assert.equal((await revoke(second.pairingId, host.accessToken)).status, 200);
+    assert.ok(repos.getPairing(second.pairingId)?.revoked_at);
+    assert.equal(await ticketStatus(f.fetch, host.hostId, second.accessToken), 401);
+  } finally { f.handle.shutdown(); }
 });

@@ -178,7 +178,7 @@ export class RelayRouter {
     if (state.peer.role === 'device' && !this.presence.isOnline(frame.host_id)) {
       throw new RemoteProtocolError('HOST_OFFLINE', 'host is offline; business frames are not queued.');
     }
-    if (isContentFrame(frame) && this.content.inFlight(connectionId) >= CONTENT_WINDOW_CHUNKS) {
+    if (isContentFrame(frame) && this.content.inFlight(connectionId, frame.route_id) >= CONTENT_WINDOW_CHUNKS) {
       throw new RemoteProtocolError('RATE_LIMITED', 'content window is full.');
     }
     this.#acceptSequence(state, frame);
@@ -264,7 +264,10 @@ export class RelayRouter {
     for (const [id, state] of this.#connections) {
       if (state.peer.hostId !== hostId) continue;
       if (state.peer.role === 'host') {
-        for (const routeId of routeIds) state.inboundByRoute.delete(routeId);
+        for (const routeId of routeIds) {
+          state.inboundByRoute.delete(routeId);
+          this.content.dropRoute(id, routeId);
+        }
       }
       if (state.peer.role === 'device' && state.peer.deviceId === deviceId) {
         state.inbound = new TransportSequenceGuard();

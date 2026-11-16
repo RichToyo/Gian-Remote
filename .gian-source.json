@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "product": "Gian Remote",
-  "sourceRepository": "RichLogic/Gian-Dev",
-  "sourceCommit": "67b805d38df6dd41ca736fc58330d9b3cea43a64",
+  "sourceRepository": "RichToyo/Gian",
+  "sourceCommit": "08e27f1f037c1db71fafaa08ee1033e4ba8d1106",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -100,7 +100,7 @@
     {
       "source": "delivery/remote/runtime.env.example",
       "path": "runtime.env.example",
-      "sha256": "37b1b4b3f3083405a5ed02ee59aafbf832d657d78bc574df3093a43b0f11b412"
+      "sha256": "9794a87c8979c8d57c26b7445be16c2cda967d100a0d609a1b75b29da6770864"
     },
     {
       "source": "delivery/remote/scripts/bundle-runtime.mjs",
@@ -185,7 +185,7 @@
     {
       "source": "packages/chat-ui/package.json",
       "path": "packages/chat-ui/package.json",
-      "sha256": "08162f516ac354c19e96600c528e3184563c451d7022522ba53550921ade1be1"
+      "sha256": "404c2d9428b1a50fdc9f130411bf996d0fe83dc6d6702a11466884c6bf880cfc"
     },
     {
       "source": "packages/chat-ui/src/approval-cards.tsx",
@@ -473,6 +473,11 @@
       "sha256": "33f4453fda094d29a609cc03d81ec54988c7d06de729ac9faf332f8491b4ad67"
     },
     {
+      "source": "packages/remote-server/migrations/009_revoked_pairing_keys_per_host.sql",
+      "path": "packages/remote-server/migrations/009_revoked_pairing_keys_per_host.sql",
+      "sha256": "79b7edce4de5d8cced02a4f9425477de84e039e7eececf87dc74c183e7a8f2d0"
+    },
+    {
       "source": "packages/remote-server/package.json",
       "path": "packages/remote-server/package.json",
       "sha256": "af9e899230eca93b21344c979a95a9e908169ebe9df432e3de6b6a133349fead"
@@ -480,7 +485,7 @@
     {
       "source": "packages/remote-server/src/app.ts",
       "path": "packages/remote-server/src/app.ts",
-      "sha256": "9d0fdbcae2d5e6a1fb9d0cb263adb82c76950337c97014adca045e85b1c002f7"
+      "sha256": "c0bcbfc867607761ad1b3a4d3bba6c1b0b2b998fcfedf16447feb1972d3f39b1"
     },
     {
       "source": "packages/remote-server/src/auth/account-login.ts",
@@ -490,7 +495,12 @@
     {
       "source": "packages/remote-server/src/auth/account-peers.ts",
       "path": "packages/remote-server/src/auth/account-peers.ts",
-      "sha256": "3a9e0851e6f0510e6c7be619b5ab66ff12138aabfbde9448ab99a945e22f7fc9"
+      "sha256": "db48b436041896d4deedca080c4368137a313eae14cf5cf8158230321489522c"
+    },
+    {
+      "source": "packages/remote-server/src/auth/client-address.ts",
+      "path": "packages/remote-server/src/auth/client-address.ts",
+      "sha256": "2c1ad5c84c48e9a574a2396163a857b79360b628f07b304b925930147aa92f35"
     },
     {
       "source": "packages/remote-server/src/auth/cookies.ts",
@@ -515,7 +525,7 @@
     {
       "source": "packages/remote-server/src/auth/rate-limit.ts",
       "path": "packages/remote-server/src/auth/rate-limit.ts",
-      "sha256": "e7a4ec7670ce0fe49ad59304b152894f50364564296c570c5d96cb5fd66b76d1"
+      "sha256": "6b08aa643ee8dd356c2b778ccc7c360e0dd7517c00e5514b8ce45d935983def4"
     },
     {
       "source": "packages/remote-server/src/auth/signatures.ts",
@@ -560,7 +570,7 @@
     {
       "source": "packages/remote-server/src/enrollment-routes.ts",
       "path": "packages/remote-server/src/enrollment-routes.ts",
-      "sha256": "33ac830c6096d3e39a5534c5037820c0e72918d730f1176c6483ce9317beb807"
+      "sha256": "a263526afe565e91b96c0cb95b97fa3ac503cb0edc6a522065c91bd6f055e37e"
     },
     {
       "source": "packages/remote-server/src/index.ts",
@@ -585,7 +595,7 @@
     {
       "source": "packages/remote-server/src/relay/content-window.ts",
       "path": "packages/remote-server/src/relay/content-window.ts",
-      "sha256": "40be94dc09528c2510f0eecc4af4e6955598fc3b648c21e5e838e8dd0edc7086"
+      "sha256": "fcbec7bb992c3c85241b3ebaec042cffa424a27f7c2175c33ba4ebe74b35d937"
     },
     {
       "source": "packages/remote-server/src/relay/outbox.ts",
@@ -595,7 +605,7 @@
     {
       "source": "packages/remote-server/src/relay/router.ts",
       "path": "packages/remote-server/src/relay/router.ts",
-      "sha256": "aac6e5d53d9302d0e186fc19da164c253a7a89c98aab2943ac1be33706ce097e"
+      "sha256": "04c394eb53796df9d5b23bfa78cfcb478f97ebd773f6e851f0db57e1a97b997c"
     },
     {
       "source": "packages/remote-server/src/static/headers.ts",
@@ -625,12 +635,12 @@
     {
       "source": "packages/remote-server/src/storage/repositories.ts",
       "path": "packages/remote-server/src/storage/repositories.ts",
-      "sha256": "b9f78e34024136dc4f2f5f3da866ca5701f9d82b0e62262bf9b89933a64ada43"
+      "sha256": "c414435b6a9c15670eabb6176615e7d6dd8d3ca8084d449e76733c04cfea4dd3"
     },
     {
       "source": "packages/remote-server/test/account-admission.test.ts",
       "path": "packages/remote-server/test/account-admission.test.ts",
-      "sha256": "53c18acdd234faba966a8d41be2a3b8792e3cad3db6be1455b32a2e95383520d"
+      "sha256": "57fa7de22fb9c00f6029482ad9acee465f414080a40e680454ba686f15ed242d"
     },
     {
       "source": "packages/remote-server/test/account-peers.test.ts",
@@ -640,7 +650,7 @@
     {
       "source": "packages/remote-server/test/controller-enrollment.test.ts",
       "path": "packages/remote-server/test/controller-enrollment.test.ts",
-      "sha256": "150d28b44888d2c8a44a20f7ccd0050c75faf6df2df345972759d3e9bc886180"
+      "sha256": "283329db4789d25cae3b0aa73a64227841601d3a03abf730a6a80646208a123b"
     },
     {
       "source": "packages/remote-server/test/enrollment.test.ts",
@@ -655,17 +665,17 @@
     {
       "source": "packages/remote-server/test/limits.test.ts",
       "path": "packages/remote-server/test/limits.test.ts",
-      "sha256": "1962e90c241d5315f2594978a4ab0ffe131f2fc3b2dae445a7a665d02ca01ecc"
+      "sha256": "3db17baffcc2917de49e88eda0a5ff7447894a43a5efeb9bd32802bd095d71d9"
     },
     {
       "source": "packages/remote-server/test/migrations.test.ts",
       "path": "packages/remote-server/test/migrations.test.ts",
-      "sha256": "e57ea0c873745f14677fef3230895dc3b75cf6d3408f3b75ef28f96b9c57350c"
+      "sha256": "e0683272705cd41d45c5f21272143fc86813f23fa24f0f2ec3f731aab1093ba1"
     },
     {
       "source": "packages/remote-server/test/pairing.test.ts",
       "path": "packages/remote-server/test/pairing.test.ts",
-      "sha256": "1d66d8ecf1c13262c711e2ddf22226ea4b5cf0d2967c6d4d370ad6d3729d0d1b"
+      "sha256": "51eb259b33b612dc5a6fc533775ccc8b5fb9b3ff1413060dbb645956dc73685e"
     },
     {
       "source": "packages/remote-server/test/privacy.test.ts",
@@ -680,7 +690,7 @@
     {
       "source": "packages/remote-server/test/relay.test.ts",
       "path": "packages/remote-server/test/relay.test.ts",
-      "sha256": "7b524e6d6c517dc0fac2241a2275dd71a8b6cd4077722fa15c26a983555b1526"
+      "sha256": "dd18295f2fc340f5bff4551860d1a0cdafc9279dfbe963efd6fc33afb13b5955"
     },
     {
       "source": "packages/remote-server/test/security.test.ts",
@@ -690,7 +700,7 @@
     {
       "source": "packages/remote-server/test/server-identity.test.ts",
       "path": "packages/remote-server/test/server-identity.test.ts",
-      "sha256": "5a33fa750059a62564a0f720798cd0ebc1119ca00c0780ed4a896151399f1f53"
+      "sha256": "7547049043c08a60ce908bb0f9d5cc87d3bcd38104a9dd6c5b4c164745010668"
     },
     {
       "source": "packages/remote-server/test/sessions.test.ts",
@@ -1170,7 +1180,7 @@
     {
       "source": "packages/remote-web/test/translation.test.ts",
       "path": "packages/remote-web/test/translation.test.ts",
-      "sha256": "9c4f57481c4e7f484f6a14bb539e5e898004d3f40493eed63151c3e906131772"
+      "sha256": "e1a4a9e02b25a70d68bdbbc8b5c6b8d78a95485dc4c20d41023e9bd88de73447"
     },
     {
       "source": "packages/remote-web/tsconfig.json",
@@ -1190,7 +1200,7 @@
     {
       "source": "packages/shared/package.json",
       "path": "packages/shared/package.json",
-      "sha256": "228932b04220de7ee6028b27df4243ebccce43a1a5e250f54ebe60dff0a291a4"
+      "sha256": "e3907f91a8a39c2c45a1bb33647c021411d61121922ec25944c6fc3cc2cd962e"
     },
     {
       "source": "packages/shared/src/action.ts",
@@ -1375,12 +1385,12 @@
     {
       "source": "packages/shared/src/translation.ts",
       "path": "packages/shared/src/translation.ts",
-      "sha256": "0089614fca1543bc56c1b7a99f564ac3b42b26b6d2d2a4c1019f3c0e4deea678"
+      "sha256": "01c77a2f8a553a5b82a793041980e2cdc97bfb0a21bd97219fbc7eade423ccfc"
     },
     {
       "source": "packages/shared/src/web.ts",
       "path": "packages/shared/src/web.ts",
-      "sha256": "c73d34a6afada834cfad3049bff10f864aa20e66286569a9992afe63948ad9e7"
+      "sha256": "75f4c2e3823d01a1eb1b072799bfaf0ff32a40c3219992af3129acd37919b7d6"
     },
     {
       "source": "packages/shared/tsconfig.json",
@@ -1400,7 +1410,7 @@
     {
       "source": "pnpm-lock.yaml",
       "path": "pnpm-lock.yaml",
-      "sha256": "be6d23a8c812ad832783cc154847192ffb6e08c0a59270b29c576fd720ed6993"
+      "sha256": "d71a96ae0cc04c9a263e069cedaa02e05b0236601033025fb823b0957cf70d9a"
     },
     {
       "source": "pnpm-workspace.yaml",
@@ -1502,7 +1512,7 @@
     {
       "path": "packages/chat-ui/package.json",
       "mode": 420,
-      "sha256": "08162f516ac354c19e96600c528e3184563c451d7022522ba53550921ade1be1"
+      "sha256": "404c2d9428b1a50fdc9f130411bf996d0fe83dc6d6702a11466884c6bf880cfc"
     },
     {
       "path": "packages/chat-ui/src/approval-cards.tsx",
@@ -1790,6 +1800,11 @@
       "sha256": "33f4453fda094d29a609cc03d81ec54988c7d06de729ac9faf332f8491b4ad67"
     },
     {
+      "path": "packages/remote-server/migrations/009_revoked_pairing_keys_per_host.sql",
+      "mode": 420,
+      "sha256": "79b7edce4de5d8cced02a4f9425477de84e039e7eececf87dc74c183e7a8f2d0"
+    },
+    {
       "path": "packages/remote-server/package.json",
       "mode": 420,
       "sha256": "fe605cf7bc80f23ec10912f533b4dc9797c84808259d8f7a2ce630c222d77c91"
@@ -1797,7 +1812,7 @@
     {
       "path": "packages/remote-server/src/app.ts",
       "mode": 420,
-      "sha256": "9d0fdbcae2d5e6a1fb9d0cb263adb82c76950337c97014adca045e85b1c002f7"
+      "sha256": "c0bcbfc867607761ad1b3a4d3bba6c1b0b2b998fcfedf16447feb1972d3f39b1"
     },
     {
       "path": "packages/remote-server/src/auth/account-login.ts",
@@ -1807,7 +1822,12 @@
     {
       "path": "packages/remote-server/src/auth/account-peers.ts",
       "mode": 420,
-      "sha256": "3a9e0851e6f0510e6c7be619b5ab66ff12138aabfbde9448ab99a945e22f7fc9"
+      "sha256": "db48b436041896d4deedca080c4368137a313eae14cf5cf8158230321489522c"
+    },
+    {
+      "path": "packages/remote-server/src/auth/client-address.ts",
+      "mode": 420,
+      "sha256": "2c1ad5c84c48e9a574a2396163a857b79360b628f07b304b925930147aa92f35"
     },
     {
       "path": "packages/remote-server/src/auth/cookies.ts",
@@ -1832,7 +1852,7 @@
     {
       "path": "packages/remote-server/src/auth/rate-limit.ts",
       "mode": 420,
-      "sha256": "e7a4ec7670ce0fe49ad59304b152894f50364564296c570c5d96cb5fd66b76d1"
+      "sha256": "6b08aa643ee8dd356c2b778ccc7c360e0dd7517c00e5514b8ce45d935983def4"
     },
     {
       "path": "packages/remote-server/src/auth/signatures.ts",
@@ -1877,7 +1897,7 @@
     {
       "path": "packages/remote-server/src/enrollment-routes.ts",
       "mode": 420,
-      "sha256": "33ac830c6096d3e39a5534c5037820c0e72918d730f1176c6483ce9317beb807"
+      "sha256": "a263526afe565e91b96c0cb95b97fa3ac503cb0edc6a522065c91bd6f055e37e"
     },
     {
       "path": "packages/remote-server/src/index.ts",
@@ -1902,7 +1922,7 @@
     {
       "path": "packages/remote-server/src/relay/content-window.ts",
       "mode": 420,
-      "sha256": "40be94dc09528c2510f0eecc4af4e6955598fc3b648c21e5e838e8dd0edc7086"
+      "sha256": "fcbec7bb992c3c85241b3ebaec042cffa424a27f7c2175c33ba4ebe74b35d937"
     },
     {
       "path": "packages/remote-server/src/relay/outbox.ts",
@@ -1912,7 +1932,7 @@
     {
       "path": "packages/remote-server/src/relay/router.ts",
       "mode": 420,
-      "sha256": "aac6e5d53d9302d0e186fc19da164c253a7a89c98aab2943ac1be33706ce097e"
+      "sha256": "04c394eb53796df9d5b23bfa78cfcb478f97ebd773f6e851f0db57e1a97b997c"
     },
     {
       "path": "packages/remote-server/src/static/headers.ts",
@@ -1942,12 +1962,12 @@
     {
       "path": "packages/remote-server/src/storage/repositories.ts",
       "mode": 420,
-      "sha256": "b9f78e34024136dc4f2f5f3da866ca5701f9d82b0e62262bf9b89933a64ada43"
+      "sha256": "c414435b6a9c15670eabb6176615e7d6dd8d3ca8084d449e76733c04cfea4dd3"
     },
     {
       "path": "packages/remote-server/test/account-admission.test.ts",
       "mode": 420,
-      "sha256": "53c18acdd234faba966a8d41be2a3b8792e3cad3db6be1455b32a2e95383520d"
+      "sha256": "57fa7de22fb9c00f6029482ad9acee465f414080a40e680454ba686f15ed242d"
     },
     {
       "path": "packages/remote-server/test/account-peers.test.ts",
@@ -1957,7 +1977,7 @@
     {
       "path": "packages/remote-server/test/controller-enrollment.test.ts",
       "mode": 420,
-      "sha256": "150d28b44888d2c8a44a20f7ccd0050c75faf6df2df345972759d3e9bc886180"
+      "sha256": "283329db4789d25cae3b0aa73a64227841601d3a03abf730a6a80646208a123b"
     },
     {
       "path": "packages/remote-server/test/enrollment.test.ts",
@@ -1972,17 +1992,17 @@
     {
       "path": "packages/remote-server/test/limits.test.ts",
       "mode": 420,
-      "sha256": "1962e90c241d5315f2594978a4ab0ffe131f2fc3b2dae445a7a665d02ca01ecc"
+      "sha256": "3db17baffcc2917de49e88eda0a5ff7447894a43a5efeb9bd32802bd095d71d9"
     },
     {
       "path": "packages/remote-server/test/migrations.test.ts",
       "mode": 420,
-      "sha256": "e57ea0c873745f14677fef3230895dc3b75cf6d3408f3b75ef28f96b9c57350c"
+      "sha256": "e0683272705cd41d45c5f21272143fc86813f23fa24f0f2ec3f731aab1093ba1"
     },
     {
       "path": "packages/remote-server/test/pairing.test.ts",
       "mode": 420,
-      "sha256": "1d66d8ecf1c13262c711e2ddf22226ea4b5cf0d2967c6d4d370ad6d3729d0d1b"
+      "sha256": "51eb259b33b612dc5a6fc533775ccc8b5fb9b3ff1413060dbb645956dc73685e"
     },
     {
       "path": "packages/remote-server/test/privacy.test.ts",
@@ -1997,7 +2017,7 @@
     {
       "path": "packages/remote-server/test/relay.test.ts",
       "mode": 420,
-      "sha256": "7b524e6d6c517dc0fac2241a2275dd71a8b6cd4077722fa15c26a983555b1526"
+      "sha256": "dd18295f2fc340f5bff4551860d1a0cdafc9279dfbe963efd6fc33afb13b5955"
     },
     {
       "path": "packages/remote-server/test/security.test.ts",
@@ -2007,7 +2027,7 @@
     {
       "path": "packages/remote-server/test/server-identity.test.ts",
       "mode": 420,
-      "sha256": "5a33fa750059a62564a0f720798cd0ebc1119ca00c0780ed4a896151399f1f53"
+      "sha256": "7547049043c08a60ce908bb0f9d5cc87d3bcd38104a9dd6c5b4c164745010668"
     },
     {
       "path": "packages/remote-server/test/sessions.test.ts",
@@ -2487,7 +2507,7 @@
     {
       "path": "packages/remote-web/test/translation.test.ts",
       "mode": 420,
-      "sha256": "9c4f57481c4e7f484f6a14bb539e5e898004d3f40493eed63151c3e906131772"
+      "sha256": "e1a4a9e02b25a70d68bdbbc8b5c6b8d78a95485dc4c20d41023e9bd88de73447"
     },
     {
       "path": "packages/remote-web/tsconfig.json",
@@ -2507,7 +2527,7 @@
     {
       "path": "packages/shared/package.json",
       "mode": 420,
-      "sha256": "228932b04220de7ee6028b27df4243ebccce43a1a5e250f54ebe60dff0a291a4"
+      "sha256": "e3907f91a8a39c2c45a1bb33647c021411d61121922ec25944c6fc3cc2cd962e"
     },
     {
       "path": "packages/shared/src/action.ts",
@@ -2692,12 +2712,12 @@
     {
       "path": "packages/shared/src/translation.ts",
       "mode": 420,
-      "sha256": "0089614fca1543bc56c1b7a99f564ac3b42b26b6d2d2a4c1019f3c0e4deea678"
+      "sha256": "01c77a2f8a553a5b82a793041980e2cdc97bfb0a21bd97219fbc7eade423ccfc"
     },
     {
       "path": "packages/shared/src/web.ts",
       "mode": 420,
-      "sha256": "c73d34a6afada834cfad3049bff10f864aa20e66286569a9992afe63948ad9e7"
+      "sha256": "75f4c2e3823d01a1eb1b072799bfaf0ff32a40c3219992af3129acd37919b7d6"
     },
     {
       "path": "packages/shared/tsconfig.json",
@@ -2742,7 +2762,7 @@
     {
       "path": "runtime.env.example",
       "mode": 420,
-      "sha256": "37b1b4b3f3083405a5ed02ee59aafbf832d657d78bc574df3093a43b0f11b412"
+      "sha256": "9794a87c8979c8d57c26b7445be16c2cda967d100a0d609a1b75b29da6770864"
     },
     {
       "path": "scripts/bundle-runtime.mjs",
