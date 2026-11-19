@@ -17,20 +17,30 @@ function formatTime(ts: number): string {
 export function HostStatusText({
   online,
   reconnecting,
+  paused = false,
+  noNetwork = false,
 }: {
   online: boolean;
   reconnecting: boolean;
+  /** Another tab of this browser holds the connection. */
+  paused?: boolean;
+  /** The browser itself is offline, not the computer. */
+  noNetwork?: boolean;
 }) {
   const t = useT();
-  const label = reconnecting
-    ? t('host.status.reconnecting')
-    : online
-      ? t('host.status.connected')
-      : t('host.status.offline');
+  const label = paused
+    ? t('host.status.paused')
+    : noNetwork
+      ? t('host.status.noNetwork')
+      : reconnecting
+        ? t('host.status.reconnecting')
+        : online
+          ? t('host.status.connected')
+          : t('host.status.offline');
   return <small className="rw-host-status">{label}</small>;
 }
 
-export function HostSelector() {
+export function HostSelector({ variant = 'header' }: { variant?: 'header' | 'rail' }) {
   const t = useT();
   const state = useRemoteState();
   const actions = useRemoteActions();
@@ -40,6 +50,9 @@ export function HostSelector() {
   const current = state.hosts.find((h) => h.id === state.currentHostId) ?? null;
   const reconnecting = state.connection.kind === 'relay_reconnecting' || state.connection.kind === 'resyncing';
   const online = state.connection.kind === 'online';
+  const paused = state.connection.kind === 'taken_over';
+  const noNetwork = state.connection.kind === 'browser_offline';
+  const status = <HostStatusText online={online} reconnecting={reconnecting} paused={paused} noNetwork={noNetwork} />;
 
   useEffect(() => {
     if (!open) return;
@@ -58,7 +71,7 @@ export function HostSelector() {
   }, [open]);
 
   return (
-    <div className={`rw-host${open ? ' open' : ''}`} ref={rootRef}>
+    <div className={`rw-host${open ? ' open' : ''}${variant === 'rail' ? ' rw-host-rail' : ''}`} ref={rootRef}>
       <button
         type="button"
         className="rw-host-btn"
@@ -67,9 +80,18 @@ export function HostSelector() {
         aria-haspopup="menu"
         onClick={() => setOpen((v) => !v)}
       >
-        <span className={`rw-host-dot${online ? '' : ' off'}`} aria-hidden="true" />
-        <span className="rw-host-current">{current ? hostDisplayName(current, state.hosts) : t('host.select')}</span>
-        {current && <HostStatusText online={online} reconnecting={reconnecting} />}
+        <span className={`rw-host-dot${online ? '' : reconnecting ? ' busy' : paused ? ' paused' : ' off'}`} aria-hidden="true" />
+        {variant === 'rail' ? (
+          <span className="rw-host-label">
+            <span className="rw-host-current">{current ? hostDisplayName(current, state.hosts) : t('host.select')}</span>
+            {current && status}
+          </span>
+        ) : (
+          <>
+            <span className="rw-host-current">{current ? hostDisplayName(current, state.hosts) : t('host.select')}</span>
+            {current && status}
+          </>
+        )}
         <Icon name="caret-down" size={10} />
       </button>
       {open && (

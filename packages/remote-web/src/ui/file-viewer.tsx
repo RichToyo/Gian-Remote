@@ -7,6 +7,7 @@
 
 import { mutationsEnabled } from '../controller/types.js';
 import { useT } from '../i18n/index.js';
+import { HeaderButton, PageHeader } from './page.js';
 import { useRemoteActions, useRemoteState } from './controller-context.js';
 import { Icon } from './icons.js';
 
@@ -122,26 +123,17 @@ export function FileSheetPanel() {
   );
 }
 
-/** Mid layout: replaces chat as the full main panel (mockup F16). */
+/** Mid layout: replaces chat as the full main panel. */
 export function FileMainPanel() {
   const t = useT();
+  const state = useRemoteState();
   const actions = useRemoteActions();
   return (
     <main className="main" style={{ minWidth: 0 }}>
-      <div className="main-head">
-        <div className="main-head-l" style={{ gap: 6 }}>
-          <button
-            type="button"
-            className="sb-iconbtn"
-            title={t('file.backToChat')}
-            aria-label={t('file.backToChat')}
-            onClick={() => actions.closeFile()}
-          >
-            <Icon name="back" size={15} />
-          </button>
-          <span>{t('file.backToChat')}</span>
-        </div>
-      </div>
+      <PageHeader
+        title={state.fileViewer?.handle.label ?? ''}
+        leading={<HeaderButton icon="back" label={t('file.backToChat')} onClick={() => actions.closeFile()} />}
+      />
       <div className="main-scroll" style={{ padding: '10px 0' }}>
         <FileViewerBody />
       </div>
@@ -149,25 +141,17 @@ export function FileMainPanel() {
   );
 }
 
-/** Narrow layout: full page with a back button (mockup F5). */
+/** Narrow layout: full page with a back button. */
 export function FilePage() {
   const t = useT();
+  const state = useRemoteState();
   const actions = useRemoteActions();
   return (
     <main className="main">
-      <div className="main-head">
-        <div className="main-head-l" style={{ gap: 6 }}>
-          <button
-            type="button"
-            className="sb-iconbtn"
-            title={t('file.back')}
-            aria-label={t('file.back')}
-            onClick={() => actions.closeFile()}
-          >
-            <Icon name="back" size={15} />
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title={state.fileViewer?.handle.label ?? ''}
+        leading={<HeaderButton icon="back" label={t('file.back')} onClick={() => actions.closeFile()} />}
+      />
       <div className="main-scroll" style={{ padding: '10px 0' }}>
         <FileViewerBody />
       </div>

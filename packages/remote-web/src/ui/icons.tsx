@@ -24,7 +24,11 @@ interface IconProps {
     | 'clock'
     | 'file'
     | 'sidebar'
-    | 'check';
+    | 'check'
+    | 'search'
+    | 'compose'
+    | 'paperclip'
+    | 'computer';
   size?: number;
 }
 
@@ -78,6 +82,25 @@ const PATHS: Record<IconProps['name'], React.ReactNode> = {
     </>
   ),
   check: <path d="M3 8.2 6.4 11.5 13 4.8" />,
+  search: (
+    <>
+      <circle cx="7" cy="7" r="4.25" />
+      <path d="M10.2 10.2 13.5 13.5" />
+    </>
+  ),
+  compose: (
+    <>
+      <path d="M8.5 2.5H4a1.5 1.5 0 0 0-1.5 1.5v8A1.5 1.5 0 0 0 4 13.5h8a1.5 1.5 0 0 0 1.5-1.5V7.5" />
+      <path d="M12.3 2.2l1.5 1.5L8.4 9.1 6.5 9.5l.4-1.9z" />
+    </>
+  ),
+  paperclip: <path d="M13 7.6 8.2 12.4a3 3 0 0 1-4.3-4.2l5-5a2 2 0 0 1 2.9 2.8L6.9 10.9a1 1 0 0 1-1.4-1.4L10 5" />,
+  computer: (
+    <>
+      <rect x="2" y="3" width="12" height="8" rx="1.3" />
+      <path d="M5.5 13.5h5M8 11v2.5" />
+    </>
+  ),
 };
 
 export function Icon({ name, size = 16 }: IconProps) {

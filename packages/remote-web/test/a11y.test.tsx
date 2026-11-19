@@ -16,7 +16,7 @@ describe('accessibility / keyboard basics', () => {
   it('host selector opens via keyboard and closes on Escape', async () => {
     const user = userEvent.setup();
     renderApp({ scenario: {}, viewport: 'wide' });
-    const selector = screen.getByRole('button', { name: 'Switch Host' });
+    const selector = screen.getByRole('button', { name: 'Switch computer' });
     selector.focus();
     await user.keyboard('{Enter}');
     expect(screen.getByRole('menu')).toBeInTheDocument();

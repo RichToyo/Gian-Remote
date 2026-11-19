@@ -2,7 +2,7 @@
   "schema": 1,
   "product": "Gian Remote",
   "sourceRepository": "RichToyo/Gian",
-  "sourceCommit": "572799d279c2859ef12b128383b12b675decbf24",
+  "sourceCommit": "4c01ad7aaf585d47bfd84eacd49da492a97caad7",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -185,7 +185,7 @@
     {
       "source": "packages/chat-ui/package.json",
       "path": "packages/chat-ui/package.json",
-      "sha256": "404c2d9428b1a50fdc9f130411bf996d0fe83dc6d6702a11466884c6bf880cfc"
+      "sha256": "1cc349d7896929c23926d40b7a189d942f9e2f24845b83db7b8e1cdc142891e1"
     },
     {
       "source": "packages/chat-ui/src/approval-cards.tsx",
@@ -200,7 +200,7 @@
     {
       "source": "packages/chat-ui/src/contexts.ts",
       "path": "packages/chat-ui/src/contexts.ts",
-      "sha256": "57aa42bad7ae9b54a9493175d81a184ed43ecd0977195b1b181b055b574b8749"
+      "sha256": "d8ddb1da00aedf65d73a6974cd2cbca04d83b5df59e25213c5fdd1d529308efc"
     },
     {
       "source": "packages/chat-ui/src/copy-button.tsx",
@@ -240,7 +240,7 @@
     {
       "source": "packages/chat-ui/src/items.tsx",
       "path": "packages/chat-ui/src/items.tsx",
-      "sha256": "19546ee855e54bfc56ff21e6bce0dc9952213523e81a1591273bd58a73d90b78"
+      "sha256": "d4ef0ecbfcd388d27d23d4a89bb53cef8926ad259446db1d8c85436f1d373be4"
     },
     {
       "source": "packages/chat-ui/src/links/LinkAnchor.tsx",
@@ -395,7 +395,7 @@
     {
       "source": "packages/chat-ui/test/messages.test.tsx",
       "path": "packages/chat-ui/test/messages.test.tsx",
-      "sha256": "e7185fb6a3f2a08b2c3dfab493691a0fad0817e4cea55809ab888c4a6c19b386"
+      "sha256": "04ce0daa781e3f695b4ba8ad3139a02c74ebe0b73af4d28613c2e70509f10a56"
     },
     {
       "source": "packages/chat-ui/test/projection.test.ts",
@@ -735,7 +735,7 @@
     {
       "source": "packages/remote-web/src/app.tsx",
       "path": "packages/remote-web/src/app.tsx",
-      "sha256": "7035c9a73a7e73f9f1a1c4a3caa542ce1641dbf528219946754c57fa4e9387a9"
+      "sha256": "1e3bf2796463d08586a58807a8e34dea4e1b4ad69773a1dc0370fb0277b90c8f"
     },
     {
       "source": "packages/remote-web/src/cache/encrypted-cache.ts",
@@ -750,7 +750,7 @@
     {
       "source": "packages/remote-web/src/controller/apply-control.ts",
       "path": "packages/remote-web/src/controller/apply-control.ts",
-      "sha256": "426d887885529b2a125459db1e6ff14703f378e38f64deb39cd1bf58bb2bc6f1"
+      "sha256": "dde41714a3bfda9b82c54e15bf4c3e3f42b5c391d8aa930a4637a0220d0f4488"
     },
     {
       "source": "packages/remote-web/src/controller/attachment-upload.ts",
@@ -780,7 +780,7 @@
     {
       "source": "packages/remote-web/src/controller/fixture.ts",
       "path": "packages/remote-web/src/controller/fixture.ts",
-      "sha256": "dce3f72eb4c3563de616e936becde278df909e524bb260ee6e418048e8e61556"
+      "sha256": "387c1764634f5f50d532dcc8d957963b40e9aeae6660db34a93915147b750cda"
     },
     {
       "source": "packages/remote-web/src/controller/pending-commands.ts",
@@ -790,7 +790,7 @@
     {
       "source": "packages/remote-web/src/controller/production.ts",
       "path": "packages/remote-web/src/controller/production.ts",
-      "sha256": "7137c2d78c06ca0aac0573f926f264d045134d1fe4ec3f7e0df871cafe1dc142"
+      "sha256": "d44edf7340c8d73e2bd37187550a21807961a89a20d26637d6237a6ed6cb2b56"
     },
     {
       "source": "packages/remote-web/src/controller/session-send.ts",
@@ -805,7 +805,7 @@
     {
       "source": "packages/remote-web/src/controller/types.ts",
       "path": "packages/remote-web/src/controller/types.ts",
-      "sha256": "b29de7968b3750dd4eccb5913b3f98beba855b5625459feb1f4f6160d57909fd"
+      "sha256": "c3c551ae7f138a7e4d4f788a162115b1ad48c214ec220022df495d21f368b0fd"
     },
     {
       "source": "packages/remote-web/src/host-selection.ts",
@@ -815,7 +815,7 @@
     {
       "source": "packages/remote-web/src/i18n/en.ts",
       "path": "packages/remote-web/src/i18n/en.ts",
-      "sha256": "b9dd0fe92a0abc8c0f7de90321da66e35988de997bbb3e8b23a5059d3362e7db"
+      "sha256": "d1095e39cfc21130e5e002f63db41521bfae350570ff3c4ee894bfdf662e674a"
     },
     {
       "source": "packages/remote-web/src/i18n/index.tsx",
@@ -845,12 +845,12 @@
     {
       "source": "packages/remote-web/src/scenarios.ts",
       "path": "packages/remote-web/src/scenarios.ts",
-      "sha256": "b2dc0a0798531120362890ed9fd14e368bb103e8265d01f33a36dd7c121aad3d"
+      "sha256": "cca3d5f2f471b6af40dff4c2c283c671c52348ef646572353450d2deae4401db"
     },
     {
       "source": "packages/remote-web/src/styles/remote-web.css",
       "path": "packages/remote-web/src/styles/remote-web.css",
-      "sha256": "60f7cc45a17963a2fe498f26fec9fd6719e2cab038bbe4808a9e66cda2867c72"
+      "sha256": "f452f0645990cae03db5ce4804c023c0c254af0b4c4fd81cddfe75222c5fa124"
     },
     {
       "source": "packages/remote-web/src/styles/tokens.css",
@@ -883,6 +883,11 @@
       "sha256": "45c0cf19bbb3376e3c0bfc8dd241284709616038ba1b361bf2302d819d88c0f2"
     },
     {
+      "source": "packages/remote-web/src/transport/host-key-pin.ts",
+      "path": "packages/remote-web/src/transport/host-key-pin.ts",
+      "sha256": "f535a1e0b5cc82efb200f9e72f0a5207bf7c8006adb992bb808b39fc2fe35efa"
+    },
+    {
       "source": "packages/remote-web/src/transport/http.ts",
       "path": "packages/remote-web/src/transport/http.ts",
       "sha256": "81e2a42dbe26c41fc3ccb5952ada9bd4609f2236ab8d4bfbd3dac713bdb3bb5d"
@@ -890,7 +895,7 @@
     {
       "source": "packages/remote-web/src/transport/identity.ts",
       "path": "packages/remote-web/src/transport/identity.ts",
-      "sha256": "ea09f0a5a2cd055b4bf90c90169f0d4e77308e2ebbb76f571ea10407a01331d4"
+      "sha256": "28e23089f598bdc09675348c208d63b51bc03b5328b52f07ff83d9ac7a25075f"
     },
     {
       "source": "packages/remote-web/src/transport/relay-client.ts",
@@ -905,22 +910,27 @@
     {
       "source": "packages/remote-web/src/transport/server-pin.ts",
       "path": "packages/remote-web/src/transport/server-pin.ts",
-      "sha256": "a4f88dadcb51001854be3d7e9f0191335a28a4ea01b1e1ff3926e8ad878c2a9b"
+      "sha256": "9e81735ca49106111bc6312a22373c4b99dddb3f8c1b5b796801cb6164bbb74d"
     },
     {
       "source": "packages/remote-web/src/ui/banners.tsx",
       "path": "packages/remote-web/src/ui/banners.tsx",
-      "sha256": "c2dc4ad04d854e9f35fa77d99bd11a08db9d55c49b95d6a6e63ecea99ba60baa"
+      "sha256": "758bd33749fa569281f9be69f3ac3f3e450db71fb35e7375a959d9a06c636d74"
+    },
+    {
+      "source": "packages/remote-web/src/ui/chat-header.tsx",
+      "path": "packages/remote-web/src/ui/chat-header.tsx",
+      "sha256": "8feaf53bdb3abf758f8a3a5c72dd67148569765c158cf9f089c616b46f219ddc"
     },
     {
       "source": "packages/remote-web/src/ui/chat.tsx",
       "path": "packages/remote-web/src/ui/chat.tsx",
-      "sha256": "c8c2d99d4f68351be01e3799ea6b73897b72b38aca60f049168fb98633fb8f3c"
+      "sha256": "cea286ab633d6391259ab41c59dfb0a4f0b21471eb37d038a339168fb8f6a9fc"
     },
     {
       "source": "packages/remote-web/src/ui/composer.tsx",
       "path": "packages/remote-web/src/ui/composer.tsx",
-      "sha256": "9e7ea081a37b12773080d49f168406f09974e32d216a9243e99e763229eef97c"
+      "sha256": "4c02e08fca5fbeff521802a6c2754d4cbfcce157aff041dd8a57784a8d4836e5"
     },
     {
       "source": "packages/remote-web/src/ui/controller-context.tsx",
@@ -935,17 +945,22 @@
     {
       "source": "packages/remote-web/src/ui/file-viewer.tsx",
       "path": "packages/remote-web/src/ui/file-viewer.tsx",
-      "sha256": "4a96725f60787039e227446953862bafd1f5c934942ca563da0a3d79fb616bd5"
+      "sha256": "87190bfc336a270c54b95ed23d05d2850f561bdbba916c2ffdf22313de662161"
+    },
+    {
+      "source": "packages/remote-web/src/ui/format.ts",
+      "path": "packages/remote-web/src/ui/format.ts",
+      "sha256": "52fcc24252cbb2f871bda2fa26a16e9e38db936aab6652611468815802d7dc95"
     },
     {
       "source": "packages/remote-web/src/ui/host-selector.tsx",
       "path": "packages/remote-web/src/ui/host-selector.tsx",
-      "sha256": "9a8716a50f00b81e6a7e86bab2b79bedc7e17c9491c5f972c4a98ba8c13fd4d4"
+      "sha256": "803650cd5f2441beb594d7ef10481d3f1543f52fcb50472aaface9a448c56518"
     },
     {
       "source": "packages/remote-web/src/ui/icons.tsx",
       "path": "packages/remote-web/src/ui/icons.tsx",
-      "sha256": "3a379102301ff9c5e876dc0ee3db71d839115dccd28ec55a152881fc294c2622"
+      "sha256": "5002986c0ecb9f2299adff739a3b851ac9cccd3254fb90ade53341b52ee3b286"
     },
     {
       "source": "packages/remote-web/src/ui/interaction.tsx",
@@ -955,12 +970,17 @@
     {
       "source": "packages/remote-web/src/ui/new-chat.tsx",
       "path": "packages/remote-web/src/ui/new-chat.tsx",
-      "sha256": "ce9e08eed8bae1c32ad97577e6f16ff2565ff61c4cff73c9ed02f951cf2a28f1"
+      "sha256": "653acd29aabc6410cb46af1a8565bb1fc614cf67c21bed5e4660a8e721dbee50"
+    },
+    {
+      "source": "packages/remote-web/src/ui/page.tsx",
+      "path": "packages/remote-web/src/ui/page.tsx",
+      "sha256": "da9d4ae147753463d013e0856901902b7738f399e7cfaca8552f74d67d6d6ed0"
     },
     {
       "source": "packages/remote-web/src/ui/pairing.tsx",
       "path": "packages/remote-web/src/ui/pairing.tsx",
-      "sha256": "ba8c9a3713d69ad1d2cbb6fe592ca34188984b49a70215a3448e0c4ae636ed26"
+      "sha256": "6607a019dea38fe8e0f37a5a26e411f0b035de1208a5ce5daa4c3f0bc339a919"
     },
     {
       "source": "packages/remote-web/src/ui/proxy-logo.tsx",
@@ -975,7 +995,7 @@
     {
       "source": "packages/remote-web/src/ui/rail.tsx",
       "path": "packages/remote-web/src/ui/rail.tsx",
-      "sha256": "6eeeb2a965e5ebf8f59d203c243d55624156b218bd5248d242c1241c7500beb7"
+      "sha256": "95e4824d60c4ac2c8abe3ba69c8b6476f2d38880a670ba84e7eebb6dc3c03299"
     },
     {
       "source": "packages/remote-web/src/ui/session-status.tsx",
@@ -985,7 +1005,7 @@
     {
       "source": "packages/remote-web/src/ui/settings.tsx",
       "path": "packages/remote-web/src/ui/settings.tsx",
-      "sha256": "bc48bdf7ced6d3c5e659ac1b3f6867d866148179c3de2771fe15d2a00463a4f3"
+      "sha256": "4cf11571ce6b0845b92824471f4a0608054b15980443a586ca632dd6b4b86e08"
     },
     {
       "source": "packages/remote-web/src/ui/viewport.tsx",
@@ -995,12 +1015,12 @@
     {
       "source": "packages/remote-web/test/a11y.test.tsx",
       "path": "packages/remote-web/test/a11y.test.tsx",
-      "sha256": "9d485d00ad986ea336eea96f1ae3d122196933b1c4583f04c7f2c9fbaecb63e4"
+      "sha256": "2339afb4d9684c7edec6bf5368d98b7447b8bfe4fcf798a382aa57525731648d"
     },
     {
       "source": "packages/remote-web/test/app-shell.test.tsx",
       "path": "packages/remote-web/test/app-shell.test.tsx",
-      "sha256": "af82e4bc21a99b3244f1594536a429e4384e9a36542d19ac953b2a6ce2828bef"
+      "sha256": "b9c13e98b1223411327359e2467959bce20185d7a45973d76aaaacc63c73d6bf"
     },
     {
       "source": "packages/remote-web/test/attachment-upload.test.ts",
@@ -1010,7 +1030,7 @@
     {
       "source": "packages/remote-web/test/chat-composer.test.tsx",
       "path": "packages/remote-web/test/chat-composer.test.tsx",
-      "sha256": "60be4b77a94bf369f8eee1443ff48c2557ca0b4c5174bd29fbd9f10715dbd7a5"
+      "sha256": "83391e390f02d228f94a055457ab22fa138c4ecf3e2809fde56c72453d7f9b91"
     },
     {
       "source": "packages/remote-web/test/ciphertext-pacer.test.ts",
@@ -1020,7 +1040,7 @@
     {
       "source": "packages/remote-web/test/connection-states.test.tsx",
       "path": "packages/remote-web/test/connection-states.test.tsx",
-      "sha256": "ff348744f6af7af56985168f4580e160e10b4146e544fb673e14b67e82fbd5f9"
+      "sha256": "6d2837ee7c6c9afaf014effd9b80a71e5e1c8cc2fb2e512dbfa99624c881a272"
     },
     {
       "source": "packages/remote-web/test/crypto-session.test.ts",
@@ -1085,7 +1105,7 @@
     {
       "source": "packages/remote-web/test/new-chat.test.tsx",
       "path": "packages/remote-web/test/new-chat.test.tsx",
-      "sha256": "68d1a1d89194865ea3671a1c81deaab39773ad9d7b77865bada277bb5dc9a6fd"
+      "sha256": "088bf6746de719eb7c67f3f65ffebdc0435e0e56cd7f4f12d0bb25d427fa3c7a"
     },
     {
       "source": "packages/remote-web/test/pairing-link.test.ts",
@@ -1100,7 +1120,7 @@
     {
       "source": "packages/remote-web/test/pairing.test.tsx",
       "path": "packages/remote-web/test/pairing.test.tsx",
-      "sha256": "d7d38773cbf3253b079278312143c34438c880cacf8c90f553e82b2aef1c59a1"
+      "sha256": "7c0a59c8f5dce46194d493cec4c9f453073f453bfd2acaaaa30f7fb20a4aec9e"
     },
     {
       "source": "packages/remote-web/test/pending-drafts.test.ts",
@@ -1110,12 +1130,12 @@
     {
       "source": "packages/remote-web/test/production-boot.test.tsx",
       "path": "packages/remote-web/test/production-boot.test.tsx",
-      "sha256": "a3513b5a11d9f4d1ef3528354d60521beac2de1ad6ce62e957fc06257c2c415d"
+      "sha256": "8f7e87aac76939e80969c9c3ab3c17729369479fb0d68ea60ae6311cc280271f"
     },
     {
       "source": "packages/remote-web/test/production-ops.test.ts",
       "path": "packages/remote-web/test/production-ops.test.ts",
-      "sha256": "35af8690bd047edf137410a22502032bac4dcd17a416087e6123e9f4685ae0e7"
+      "sha256": "867e160a5ced8641f9b3bff2b417a2a11e4b4047bd26714c4e953d33e14e82e9"
     },
     {
       "source": "packages/remote-web/test/proxy-logo.test.tsx",
@@ -1130,7 +1150,7 @@
     {
       "source": "packages/remote-web/test/rail.test.tsx",
       "path": "packages/remote-web/test/rail.test.tsx",
-      "sha256": "015ee9260bb6fa44b069f6ef729ef3f2d3c1def81cb877d84d57c9280e8ade88"
+      "sha256": "f74cf7a11569ebcc7f375ff1cb580a940c9bd1a139e8fab1e9aa26a250238a31"
     },
     {
       "source": "packages/remote-web/test/render-app.tsx",
@@ -1155,7 +1175,7 @@
     {
       "source": "packages/remote-web/test/settings.test.tsx",
       "path": "packages/remote-web/test/settings.test.tsx",
-      "sha256": "282be1124c3e5c8b84194caede19a6667cea1bf12926be605d2cc924d284e772"
+      "sha256": "66faacc83a44e17aecd14b6a14caab79da8a11d179a7d0c8210f07e39f14b625"
     },
     {
       "source": "packages/remote-web/test/setup.ts",
@@ -1200,7 +1220,7 @@
     {
       "source": "packages/shared/package.json",
       "path": "packages/shared/package.json",
-      "sha256": "e3907f91a8a39c2c45a1bb33647c021411d61121922ec25944c6fc3cc2cd962e"
+      "sha256": "593a51331d9feb75c35b4b1420f634b49bf6a604a041ae5ec708191095767182"
     },
     {
       "source": "packages/shared/src/action.ts",
@@ -1512,7 +1532,7 @@
     {
       "path": "packages/chat-ui/package.json",
       "mode": 420,
-      "sha256": "404c2d9428b1a50fdc9f130411bf996d0fe83dc6d6702a11466884c6bf880cfc"
+      "sha256": "1cc349d7896929c23926d40b7a189d942f9e2f24845b83db7b8e1cdc142891e1"
     },
     {
       "path": "packages/chat-ui/src/approval-cards.tsx",
@@ -1527,7 +1547,7 @@
     {
       "path": "packages/chat-ui/src/contexts.ts",
       "mode": 420,
-      "sha256": "57aa42bad7ae9b54a9493175d81a184ed43ecd0977195b1b181b055b574b8749"
+      "sha256": "d8ddb1da00aedf65d73a6974cd2cbca04d83b5df59e25213c5fdd1d529308efc"
     },
     {
       "path": "packages/chat-ui/src/copy-button.tsx",
@@ -1567,7 +1587,7 @@
     {
       "path": "packages/chat-ui/src/items.tsx",
       "mode": 420,
-      "sha256": "19546ee855e54bfc56ff21e6bce0dc9952213523e81a1591273bd58a73d90b78"
+      "sha256": "d4ef0ecbfcd388d27d23d4a89bb53cef8926ad259446db1d8c85436f1d373be4"
     },
     {
       "path": "packages/chat-ui/src/links/classify.ts",
@@ -1722,7 +1742,7 @@
     {
       "path": "packages/chat-ui/test/messages.test.tsx",
       "mode": 420,
-      "sha256": "e7185fb6a3f2a08b2c3dfab493691a0fad0817e4cea55809ab888c4a6c19b386"
+      "sha256": "04ce0daa781e3f695b4ba8ad3139a02c74ebe0b73af4d28613c2e70509f10a56"
     },
     {
       "path": "packages/chat-ui/test/projection.test.ts",
@@ -2062,7 +2082,7 @@
     {
       "path": "packages/remote-web/src/app.tsx",
       "mode": 420,
-      "sha256": "7035c9a73a7e73f9f1a1c4a3caa542ce1641dbf528219946754c57fa4e9387a9"
+      "sha256": "1e3bf2796463d08586a58807a8e34dea4e1b4ad69773a1dc0370fb0277b90c8f"
     },
     {
       "path": "packages/remote-web/src/cache/encrypted-cache.ts",
@@ -2077,7 +2097,7 @@
     {
       "path": "packages/remote-web/src/controller/apply-control.ts",
       "mode": 420,
-      "sha256": "426d887885529b2a125459db1e6ff14703f378e38f64deb39cd1bf58bb2bc6f1"
+      "sha256": "dde41714a3bfda9b82c54e15bf4c3e3f42b5c391d8aa930a4637a0220d0f4488"
     },
     {
       "path": "packages/remote-web/src/controller/attachment-upload.ts",
@@ -2107,7 +2127,7 @@
     {
       "path": "packages/remote-web/src/controller/fixture.ts",
       "mode": 420,
-      "sha256": "dce3f72eb4c3563de616e936becde278df909e524bb260ee6e418048e8e61556"
+      "sha256": "387c1764634f5f50d532dcc8d957963b40e9aeae6660db34a93915147b750cda"
     },
     {
       "path": "packages/remote-web/src/controller/pending-commands.ts",
@@ -2117,7 +2137,7 @@
     {
       "path": "packages/remote-web/src/controller/production.ts",
       "mode": 420,
-      "sha256": "7137c2d78c06ca0aac0573f926f264d045134d1fe4ec3f7e0df871cafe1dc142"
+      "sha256": "d44edf7340c8d73e2bd37187550a21807961a89a20d26637d6237a6ed6cb2b56"
     },
     {
       "path": "packages/remote-web/src/controller/session-send.ts",
@@ -2132,7 +2152,7 @@
     {
       "path": "packages/remote-web/src/controller/types.ts",
       "mode": 420,
-      "sha256": "b29de7968b3750dd4eccb5913b3f98beba855b5625459feb1f4f6160d57909fd"
+      "sha256": "c3c551ae7f138a7e4d4f788a162115b1ad48c214ec220022df495d21f368b0fd"
     },
     {
       "path": "packages/remote-web/src/host-selection.ts",
@@ -2142,7 +2162,7 @@
     {
       "path": "packages/remote-web/src/i18n/en.ts",
       "mode": 420,
-      "sha256": "b9dd0fe92a0abc8c0f7de90321da66e35988de997bbb3e8b23a5059d3362e7db"
+      "sha256": "d1095e39cfc21130e5e002f63db41521bfae350570ff3c4ee894bfdf662e674a"
     },
     {
       "path": "packages/remote-web/src/i18n/index.tsx",
@@ -2172,12 +2192,12 @@
     {
       "path": "packages/remote-web/src/scenarios.ts",
       "mode": 420,
-      "sha256": "b2dc0a0798531120362890ed9fd14e368bb103e8265d01f33a36dd7c121aad3d"
+      "sha256": "cca3d5f2f471b6af40dff4c2c283c671c52348ef646572353450d2deae4401db"
     },
     {
       "path": "packages/remote-web/src/styles/remote-web.css",
       "mode": 420,
-      "sha256": "60f7cc45a17963a2fe498f26fec9fd6719e2cab038bbe4808a9e66cda2867c72"
+      "sha256": "f452f0645990cae03db5ce4804c023c0c254af0b4c4fd81cddfe75222c5fa124"
     },
     {
       "path": "packages/remote-web/src/styles/tokens.css",
@@ -2210,6 +2230,11 @@
       "sha256": "45c0cf19bbb3376e3c0bfc8dd241284709616038ba1b361bf2302d819d88c0f2"
     },
     {
+      "path": "packages/remote-web/src/transport/host-key-pin.ts",
+      "mode": 420,
+      "sha256": "f535a1e0b5cc82efb200f9e72f0a5207bf7c8006adb992bb808b39fc2fe35efa"
+    },
+    {
       "path": "packages/remote-web/src/transport/http.ts",
       "mode": 420,
       "sha256": "81e2a42dbe26c41fc3ccb5952ada9bd4609f2236ab8d4bfbd3dac713bdb3bb5d"
@@ -2217,7 +2242,7 @@
     {
       "path": "packages/remote-web/src/transport/identity.ts",
       "mode": 420,
-      "sha256": "ea09f0a5a2cd055b4bf90c90169f0d4e77308e2ebbb76f571ea10407a01331d4"
+      "sha256": "28e23089f598bdc09675348c208d63b51bc03b5328b52f07ff83d9ac7a25075f"
     },
     {
       "path": "packages/remote-web/src/transport/relay-client.ts",
@@ -2232,22 +2257,27 @@
     {
       "path": "packages/remote-web/src/transport/server-pin.ts",
       "mode": 420,
-      "sha256": "a4f88dadcb51001854be3d7e9f0191335a28a4ea01b1e1ff3926e8ad878c2a9b"
+      "sha256": "9e81735ca49106111bc6312a22373c4b99dddb3f8c1b5b796801cb6164bbb74d"
     },
     {
       "path": "packages/remote-web/src/ui/banners.tsx",
       "mode": 420,
-      "sha256": "c2dc4ad04d854e9f35fa77d99bd11a08db9d55c49b95d6a6e63ecea99ba60baa"
+      "sha256": "758bd33749fa569281f9be69f3ac3f3e450db71fb35e7375a959d9a06c636d74"
+    },
+    {
+      "path": "packages/remote-web/src/ui/chat-header.tsx",
+      "mode": 420,
+      "sha256": "8feaf53bdb3abf758f8a3a5c72dd67148569765c158cf9f089c616b46f219ddc"
     },
     {
       "path": "packages/remote-web/src/ui/chat.tsx",
       "mode": 420,
-      "sha256": "c8c2d99d4f68351be01e3799ea6b73897b72b38aca60f049168fb98633fb8f3c"
+      "sha256": "cea286ab633d6391259ab41c59dfb0a4f0b21471eb37d038a339168fb8f6a9fc"
     },
     {
       "path": "packages/remote-web/src/ui/composer.tsx",
       "mode": 420,
-      "sha256": "9e7ea081a37b12773080d49f168406f09974e32d216a9243e99e763229eef97c"
+      "sha256": "4c02e08fca5fbeff521802a6c2754d4cbfcce157aff041dd8a57784a8d4836e5"
     },
     {
       "path": "packages/remote-web/src/ui/controller-context.tsx",
@@ -2262,17 +2292,22 @@
     {
       "path": "packages/remote-web/src/ui/file-viewer.tsx",
       "mode": 420,
-      "sha256": "4a96725f60787039e227446953862bafd1f5c934942ca563da0a3d79fb616bd5"
+      "sha256": "87190bfc336a270c54b95ed23d05d2850f561bdbba916c2ffdf22313de662161"
+    },
+    {
+      "path": "packages/remote-web/src/ui/format.ts",
+      "mode": 420,
+      "sha256": "52fcc24252cbb2f871bda2fa26a16e9e38db936aab6652611468815802d7dc95"
     },
     {
       "path": "packages/remote-web/src/ui/host-selector.tsx",
       "mode": 420,
-      "sha256": "9a8716a50f00b81e6a7e86bab2b79bedc7e17c9491c5f972c4a98ba8c13fd4d4"
+      "sha256": "803650cd5f2441beb594d7ef10481d3f1543f52fcb50472aaface9a448c56518"
     },
     {
       "path": "packages/remote-web/src/ui/icons.tsx",
       "mode": 420,
-      "sha256": "3a379102301ff9c5e876dc0ee3db71d839115dccd28ec55a152881fc294c2622"
+      "sha256": "5002986c0ecb9f2299adff739a3b851ac9cccd3254fb90ade53341b52ee3b286"
     },
     {
       "path": "packages/remote-web/src/ui/interaction.tsx",
@@ -2282,12 +2317,17 @@
     {
       "path": "packages/remote-web/src/ui/new-chat.tsx",
       "mode": 420,
-      "sha256": "ce9e08eed8bae1c32ad97577e6f16ff2565ff61c4cff73c9ed02f951cf2a28f1"
+      "sha256": "653acd29aabc6410cb46af1a8565bb1fc614cf67c21bed5e4660a8e721dbee50"
+    },
+    {
+      "path": "packages/remote-web/src/ui/page.tsx",
+      "mode": 420,
+      "sha256": "da9d4ae147753463d013e0856901902b7738f399e7cfaca8552f74d67d6d6ed0"
     },
     {
       "path": "packages/remote-web/src/ui/pairing.tsx",
       "mode": 420,
-      "sha256": "ba8c9a3713d69ad1d2cbb6fe592ca34188984b49a70215a3448e0c4ae636ed26"
+      "sha256": "6607a019dea38fe8e0f37a5a26e411f0b035de1208a5ce5daa4c3f0bc339a919"
     },
     {
       "path": "packages/remote-web/src/ui/proxy-logo.tsx",
@@ -2302,7 +2342,7 @@
     {
       "path": "packages/remote-web/src/ui/rail.tsx",
       "mode": 420,
-      "sha256": "6eeeb2a965e5ebf8f59d203c243d55624156b218bd5248d242c1241c7500beb7"
+      "sha256": "95e4824d60c4ac2c8abe3ba69c8b6476f2d38880a670ba84e7eebb6dc3c03299"
     },
     {
       "path": "packages/remote-web/src/ui/session-status.tsx",
@@ -2312,7 +2352,7 @@
     {
       "path": "packages/remote-web/src/ui/settings.tsx",
       "mode": 420,
-      "sha256": "bc48bdf7ced6d3c5e659ac1b3f6867d866148179c3de2771fe15d2a00463a4f3"
+      "sha256": "4cf11571ce6b0845b92824471f4a0608054b15980443a586ca632dd6b4b86e08"
     },
     {
       "path": "packages/remote-web/src/ui/viewport.tsx",
@@ -2322,12 +2362,12 @@
     {
       "path": "packages/remote-web/test/a11y.test.tsx",
       "mode": 420,
-      "sha256": "9d485d00ad986ea336eea96f1ae3d122196933b1c4583f04c7f2c9fbaecb63e4"
+      "sha256": "2339afb4d9684c7edec6bf5368d98b7447b8bfe4fcf798a382aa57525731648d"
     },
     {
       "path": "packages/remote-web/test/app-shell.test.tsx",
       "mode": 420,
-      "sha256": "af82e4bc21a99b3244f1594536a429e4384e9a36542d19ac953b2a6ce2828bef"
+      "sha256": "b9c13e98b1223411327359e2467959bce20185d7a45973d76aaaacc63c73d6bf"
     },
     {
       "path": "packages/remote-web/test/attachment-upload.test.ts",
@@ -2337,7 +2377,7 @@
     {
       "path": "packages/remote-web/test/chat-composer.test.tsx",
       "mode": 420,
-      "sha256": "60be4b77a94bf369f8eee1443ff48c2557ca0b4c5174bd29fbd9f10715dbd7a5"
+      "sha256": "83391e390f02d228f94a055457ab22fa138c4ecf3e2809fde56c72453d7f9b91"
     },
     {
       "path": "packages/remote-web/test/ciphertext-pacer.test.ts",
@@ -2347,7 +2387,7 @@
     {
       "path": "packages/remote-web/test/connection-states.test.tsx",
       "mode": 420,
-      "sha256": "ff348744f6af7af56985168f4580e160e10b4146e544fb673e14b67e82fbd5f9"
+      "sha256": "6d2837ee7c6c9afaf014effd9b80a71e5e1c8cc2fb2e512dbfa99624c881a272"
     },
     {
       "path": "packages/remote-web/test/crypto-session.test.ts",
@@ -2412,7 +2452,7 @@
     {
       "path": "packages/remote-web/test/new-chat.test.tsx",
       "mode": 420,
-      "sha256": "68d1a1d89194865ea3671a1c81deaab39773ad9d7b77865bada277bb5dc9a6fd"
+      "sha256": "088bf6746de719eb7c67f3f65ffebdc0435e0e56cd7f4f12d0bb25d427fa3c7a"
     },
     {
       "path": "packages/remote-web/test/pairing-link.test.ts",
@@ -2427,7 +2467,7 @@
     {
       "path": "packages/remote-web/test/pairing.test.tsx",
       "mode": 420,
-      "sha256": "d7d38773cbf3253b079278312143c34438c880cacf8c90f553e82b2aef1c59a1"
+      "sha256": "7c0a59c8f5dce46194d493cec4c9f453073f453bfd2acaaaa30f7fb20a4aec9e"
     },
     {
       "path": "packages/remote-web/test/pending-drafts.test.ts",
@@ -2437,12 +2477,12 @@
     {
       "path": "packages/remote-web/test/production-boot.test.tsx",
       "mode": 420,
-      "sha256": "a3513b5a11d9f4d1ef3528354d60521beac2de1ad6ce62e957fc06257c2c415d"
+      "sha256": "8f7e87aac76939e80969c9c3ab3c17729369479fb0d68ea60ae6311cc280271f"
     },
     {
       "path": "packages/remote-web/test/production-ops.test.ts",
       "mode": 420,
-      "sha256": "35af8690bd047edf137410a22502032bac4dcd17a416087e6123e9f4685ae0e7"
+      "sha256": "867e160a5ced8641f9b3bff2b417a2a11e4b4047bd26714c4e953d33e14e82e9"
     },
     {
       "path": "packages/remote-web/test/proxy-logo.test.tsx",
@@ -2457,7 +2497,7 @@
     {
       "path": "packages/remote-web/test/rail.test.tsx",
       "mode": 420,
-      "sha256": "015ee9260bb6fa44b069f6ef729ef3f2d3c1def81cb877d84d57c9280e8ade88"
+      "sha256": "f74cf7a11569ebcc7f375ff1cb580a940c9bd1a139e8fab1e9aa26a250238a31"
     },
     {
       "path": "packages/remote-web/test/render-app.tsx",
@@ -2482,7 +2522,7 @@
     {
       "path": "packages/remote-web/test/settings.test.tsx",
       "mode": 420,
-      "sha256": "282be1124c3e5c8b84194caede19a6667cea1bf12926be605d2cc924d284e772"
+      "sha256": "66faacc83a44e17aecd14b6a14caab79da8a11d179a7d0c8210f07e39f14b625"
     },
     {
       "path": "packages/remote-web/test/setup.ts",
@@ -2527,7 +2567,7 @@
     {
       "path": "packages/shared/package.json",
       "mode": 420,
-      "sha256": "e3907f91a8a39c2c45a1bb33647c021411d61121922ec25944c6fc3cc2cd962e"
+      "sha256": "593a51331d9feb75c35b4b1420f634b49bf6a604a041ae5ec708191095767182"
     },
     {
       "path": "packages/shared/src/action.ts",

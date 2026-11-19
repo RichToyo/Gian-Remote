@@ -41,6 +41,39 @@ export const FIXTURE_SCENARIOS: Record<string, FixtureScenario> = {
   /** F1: desktop chat, active turn, queue with two entries. */
   chat: {},
 
+  /** Composer with one upload in progress and one that failed. */
+  'composer-uploads': {
+    hostData: {
+      'host-home': {
+        workspaces: [{ id: 'ws-1', name: '~/Coding/Gian-Dev' }],
+        tasks: sampleTasks(),
+        sessions: [{ ...sampleSessions()[1]!, status: 'done' }],
+        transcripts: { 's-2': sampleTranscript() },
+        uploads: { 's-2': [
+          { id: 'u1', name: 'screen-recording.mov', size: 4_000_000, status: 'uploading' },
+          { id: 'u2', name: 'build-logs.zip', size: 31_000_000, status: 'failed', error: 'FILE_TOO_LARGE' },
+        ] },
+      },
+    },
+    view: { kind: 'chat', sessionId: 's-2' },
+  },
+
+  /** An image attachment in the transcript shown as a preview. */
+  'attachment-preview': {
+    hostData: {
+      'host-home': {
+        workspaces: [{ id: 'ws-1', name: '~/Coding/Gian-Dev' }],
+        tasks: sampleTasks(),
+        sessions: [{ ...sampleSessions()[1]!, status: 'done' }],
+        transcripts: { 's-2': sampleTranscript().map(item => (item.kind === 'user'
+          ? { ...item, attachments: [{ name: 'settings.png', mime: 'image/png', url: 'ref-settings', size: 52_000 }] }
+          : item)) },
+        thumbnails: { 'ref-settings': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSczMjAnIGhlaWdodD0nMjAwJz48cmVjdCB3aWR0aD0nMzIwJyBoZWlnaHQ9JzIwMCcgZmlsbD0nI2U5ZTNmNScvPjxyZWN0IHg9JzI0JyB5PScyNCcgd2lkdGg9JzI3MicgaGVpZ2h0PScyOCcgcng9JzYnIGZpbGw9JyNiOWE2ZTAnLz48cmVjdCB4PScyNCcgeT0nNjgnIHdpZHRoPScyMDAnIGhlaWdodD0nMTQnIHJ4PSc0JyBmaWxsPScjY2ZjM2VhJy8+PHJlY3QgeD0nMjQnIHk9JzkyJyB3aWR0aD0nMjQwJyBoZWlnaHQ9JzE0JyByeD0nNCcgZmlsbD0nI2NmYzNlYScvPjxyZWN0IHg9JzI0JyB5PScxNDAnIHdpZHRoPScxMjAnIGhlaWdodD0nMzYnIHJ4PSc4JyBmaWxsPScjOGY2ZmQxJy8+PC9zdmc+' },
+      },
+    },
+    view: { kind: 'chat', sessionId: 's-2' },
+  },
+
   /** Idle session (no active turn), plain Send. */
   'chat-idle': {
     hostData: {
@@ -131,6 +164,23 @@ export const FIXTURE_SCENARIOS: Record<string, FixtureScenario> = {
 
   'device-revoked': {
     connection: { kind: 'device_revoked' },
+  },
+
+  'device-key-missing': {
+    connection: { kind: 'device_revoked', reason: 'key_missing' },
+  },
+
+  'host-key-changed': {
+    connection: { kind: 'device_revoked', reason: 'host_key_changed' },
+  },
+
+  /** Another tab of this browser took the connection. */
+  'taken-over': {
+    connection: { kind: 'taken_over' },
+  },
+
+  'server-changed': {
+    connection: { kind: 'server_changed' },
   },
 
   /** Unknown outcome strip (§14). */

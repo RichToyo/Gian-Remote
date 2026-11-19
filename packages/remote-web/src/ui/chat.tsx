@@ -5,11 +5,12 @@
  * as cards at the end of the transcript.
  */
 
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import {
   ChatPanelOpenContext,
   LinkBehaviorContext,
   MessageAttachmentOpenContext,
+  MessageAttachmentPreviewContext,
   SEND_TRANSLATE_TIMEOUT_MS,
   Transcript,
   TranslationResultBlock,
@@ -22,7 +23,7 @@ import {
 import type { TranscriptItem } from '@gian/chat-ui';
 import type { RemoteSession } from '@gian/remote-protocol';
 import { sessionIsWorking } from '../controller/apply-control.js';
-import { mutationsEnabled } from '../controller/types.js';
+import { mutationsEnabled, thumbnailKey } from '../controller/types.js';
 import { isReadExpanded, readingValue, translationUiFor } from '../controller/translation.js';
 import { useT } from '../i18n/index.js';
 import { createRemoteLinkBehavior } from '../links/link-behavior.js';
@@ -76,6 +77,25 @@ export function ChatPage({ session }: { session: RemoteSession }) {
     .filter(([interactionId]) => state.interactions.some(
       interaction => interaction.id === interactionId && interaction.session_id === session.id,
     ));
+
+  // Image attachments show a preview once fetched over the encrypted
+  // channel; until then (or above the preview limit) the file chip stays.
+  useEffect(() => {
+    if (!online) return;
+    for (const item of transcript?.items ?? []) {
+      if (item.kind !== 'user') continue;
+      for (const attachment of item.attachments ?? []) {
+        if (!attachment.mime?.startsWith('image/')) continue;
+        if (state.thumbnails?.[thumbnailKey(session.id, attachment.url)]) continue;
+        actions.requestThumbnail(session.id, attachment);
+      }
+    }
+  }, [online, transcript?.items, state.thumbnails, session.id, actions]);
+  const thumbnails = state.thumbnails;
+  const previewAttachment = useCallback(
+    (attachment: { url: string }) => thumbnails?.[thumbnailKey(session.id, attachment.url)]?.dataUrl ?? null,
+    [thumbnails, session.id],
+  );
 
   const linkBehavior = useMemo(
     () =>
@@ -135,6 +155,7 @@ export function ChatPage({ session }: { session: RemoteSession }) {
                 label: attachment.name,
               })}
             >
+              <MessageAttachmentPreviewContext.Provider value={previewAttachment}>
               <ChatPanelOpenContext.Provider value={null}>
                 <TranslationTextRetryContext.Provider
                   value={(recordId) => actions.retryTranslationText(session.id, recordId)}
@@ -218,6 +239,7 @@ export function ChatPage({ session }: { session: RemoteSession }) {
                 />
                 </TranslationTextRetryContext.Provider>
               </ChatPanelOpenContext.Provider>
+              </MessageAttachmentPreviewContext.Provider>
             </MessageAttachmentOpenContext.Provider>
           </LinkBehaviorContext.Provider>
           {sessionInteractionErrors.map(([interactionId, message]) => (
@@ -230,7 +252,6 @@ export function ChatPage({ session }: { session: RemoteSession }) {
       <div className={mode === 'narrow' ? 'rw-m-bottom' : 'rw-bottom'}>
         {mode === 'narrow' ? <QueueCollapsedRow session={session} /> : <QueueDrawer session={session} />}
         <Composer session={session} />
-        {stale && <div className="rw-offline-note">{t('chat.stale.note')}</div>}
       </div>
     </div>
   );

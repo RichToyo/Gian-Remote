@@ -1,10 +1,11 @@
 /**
- * New Chat page (B4, mockup F11): Workspace + Agent + Doing Task required;
- * name / model / turn config stay optional with catalog-derived defaults.
- * Create waits for the canonical Host session before entering chat.
+ * New Chat page: Agent + repository, and a Task — optional on Hosts with the
+ * conversation directory, which can start a chat outside any Task. Name,
+ * model and effort stay optional with catalog defaults. Create waits for the
+ * canonical Host session before entering the chat.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { mutationsEnabled } from '../controller/types.js';
 import { useT } from '../i18n/index.js';
 import { useRemoteActions, useRemoteState } from './controller-context.js';
@@ -20,12 +21,25 @@ export function NewChatPage() {
   const presetTaskId = state.view.kind === 'new-chat' ? state.view.presetTaskId : '';
 
   const [workspaceId, setWorkspaceId] = useState<string>(catalog?.workspaces[0]?.id ?? '');
-  const [agentId, setAgentId] = useState<string>('');
+  const [agentId, setAgentId] = useState<string>(
+    () => catalog?.agents.find(agent => agent.readiness === 'ready')?.id ?? '',
+  );
   const [taskId, setTaskId] = useState<string>(presetTaskId);
   const [name, setName] = useState('');
   const [model, setModel] = useState<string>('');
   const [thinking, setThinking] = useState('');
 
+  // The catalog may arrive after the page opened: pick the first ready Agent
+  // and repository then, without overriding a choice the user already made.
+  useEffect(() => {
+    if (!agentId) {
+      const ready = catalog?.agents.find(agent => agent.readiness === 'ready');
+      if (ready) setAgentId(ready.id);
+    }
+    if (!workspaceId && catalog?.workspaces[0]) setWorkspaceId(catalog.workspaces[0].id);
+  }, [catalog, agentId, workspaceId]);
+
+  const taskOptional = state.directory?.supported === true;
   const online = mutationsEnabled(state.connection);
   const creating = Object.values(state.mutations).some(
     (m) => m.phase === 'pending' && m.label === 'session.create',
@@ -44,7 +58,7 @@ export function NewChatPage() {
     !creating &&
     !state.catalogInvalidated &&
     workspaceId !== '' &&
-    selectedTask !== null &&
+    (selectedTask !== null || (taskOptional && taskId === '')) &&
     selectedAgent !== null &&
     selectedAgent.readiness === 'ready';
 
@@ -81,24 +95,7 @@ export function NewChatPage() {
 
         <div className="rw-form-row">
           <span className="rw-form-label">
-            {t('newchat.workspace')} <span className="req">{t('newchat.required')}</span>
-          </span>
-          <select
-            className="rw-select"
-            aria-label={t('newchat.workspace')}
-            value={workspaceId}
-            onChange={(event) => setWorkspaceId(event.target.value)}
-          >
-            <option value="">—</option>
-            {(catalog?.workspaces ?? []).map((ws) => (
-              <option key={ws.id} value={ws.id}>{ws.name}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="rw-form-row">
-          <span className="rw-form-label">
-            {t('newchat.agent')} <span className="req">{t('newchat.required')}</span>
+            {t('newchat.agent')}
           </span>
           <div className="segm sm" role="radiogroup" aria-label={t('newchat.agent')}>
             {agents.map((agent) => (
@@ -128,7 +125,24 @@ export function NewChatPage() {
 
         <div className="rw-form-row">
           <span className="rw-form-label">
-            {t('newchat.task')} <span className="req">{t('newchat.required')}</span>
+            {t('newchat.workspace')}
+          </span>
+          <select
+            className="rw-select"
+            aria-label={t('newchat.workspace')}
+            value={workspaceId}
+            onChange={(event) => setWorkspaceId(event.target.value)}
+          >
+            <option value="">—</option>
+            {(catalog?.workspaces ?? []).map((ws) => (
+              <option key={ws.id} value={ws.id}>{ws.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="rw-form-row">
+          <span className="rw-form-label">
+            {t('newchat.task')} {taskOptional && <span className="opt">{t('newchat.optional')}</span>}
           </span>
           <select
             className="rw-select"
@@ -136,7 +150,7 @@ export function NewChatPage() {
             value={taskId}
             onChange={(event) => setTaskId(event.target.value)}
           >
-            <option value="">—</option>
+            <option value="">{taskOptional ? t('newchat.noTask') : '—'}</option>
             {(catalog?.tasks ?? []).map((task) => (
               <option key={task.id} value={task.id}>{task.name}</option>
             ))}
@@ -186,7 +200,7 @@ export function NewChatPage() {
           </div>
         )}
 
-        <div className="rw-set-row" style={{ justifyContent: 'flex-end', marginTop: 4 }}>
+        <div className="rw-form-actions">
           <button type="button" className="btn sm ghost" onClick={() => actions.backToChat()}>
             {t('common.cancel')}
           </button>

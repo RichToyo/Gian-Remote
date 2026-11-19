@@ -46,7 +46,7 @@ describe('production boot wiring', () => {
     expect(screen.getByTestId('product-locale').textContent).toBe('en');
     expect(screen.getByRole('textbox', { name: 'Pairing code' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Sign in with GitHub' })).toBeNull();
-    expect(screen.getByRole('link', { name: 'Host registration' })).toHaveAttribute('href', '/enrollment');
+    expect(screen.getByRole('link', { name: 'Register a computer with this server' })).toHaveAttribute('href', '/enrollment');
     controller.close();
   });
 });

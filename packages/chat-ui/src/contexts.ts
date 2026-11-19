@@ -56,6 +56,14 @@ export const MessageAttachmentOpenContext = createContext<
   ((attachment: MessageAttachment) => void) | null
 >(null);
 
+/** With a secure opener, an image attachment's `url` is an opaque handle an
+ *  <img> cannot load. This resolver returns a displayable source for it once
+ *  the app has fetched one (a data: URL), or null to keep the file chip.
+ *  Null context: file chips only, as before. */
+export const MessageAttachmentPreviewContext = createContext<
+  ((attachment: MessageAttachment) => string | null) | null
+>(null);
+
 /** Pushes a DiffItem into the host app's detail surface when the diff is too
  *  large for inline expansion. Null: the row stays inert. */
 export const DiffOpenContext = createContext<((item: DiffItem) => void) | null>(null);

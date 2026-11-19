@@ -1,17 +1,15 @@
 /**
- * Remote Settings (B9, mockup F7/F8): theme (light/warm/dark) + accent
- * swatches, Host pairings with self-revoke ("disconnect this Host", danger
- * two-step), and "sign out of this browser" (ends the refresh family and
- * clears decrypted caches — NOT a device revoke). No account section, no
- * management of other devices.
+ * Remote Settings: appearance (theme + accent), the computers this browser
+ * is paired with (each can be removed, two-step), and signing this browser
+ * out, which revokes its pairings and deletes its keys and caches.
  */
 
 import { useState } from 'react';
 import type { AccentName, RemoteHostEntry, ThemeName } from '../controller/types.js';
 import { useT } from '../i18n/index.js';
 import { useRemoteActions, useRemoteState } from './controller-context.js';
-import { Icon } from './icons.js';
 import { hostDisplayName } from '../host-selection.js';
+import { HeaderButton, PageHeader } from './page.js';
 
 const THEMES: ThemeName[] = ['light', 'warm', 'dark', 'system'];
 const ACCENTS: Array<{ id: AccentName; swatch: string }> = [
@@ -85,10 +83,11 @@ export function SettingsBody() {
 
   return (
     <div className="rw-settings" data-testid="remote-settings">
-      <div className="rw-set-sec">
-        <span className="rw-set-label">{t('settings.appearance')}</span>
-        <div className="rw-set-row">
-          <div className="segm sm" role="radiogroup" aria-label={t('settings.appearance')}>
+      <section className="rw-card" aria-labelledby="rw-set-appearance">
+        <h2 className="rw-card-title" id="rw-set-appearance">{t('settings.appearance')}</h2>
+        <div className="rw-card-row">
+          <span className="rw-card-label">{t('settings.theme')}</span>
+          <div className="segm sm" role="radiogroup" aria-label={t('settings.theme')}>
             {THEMES.map((theme) => (
               <button
                 key={theme}
@@ -98,99 +97,98 @@ export function SettingsBody() {
                 className={`segm-item${state.settings.theme === theme ? ' active' : ''}`}
                 onClick={() => actions.setTheme(theme)}
               >
-                {theme === 'system' ? t('settings.theme.system') : theme}
+                {t(`settings.theme.${theme}`)}
               </button>
             ))}
           </div>
         </div>
-        <div className="rw-set-row">
-          {ACCENTS.map((accent) => (
-            <button
-              key={accent.id}
-              type="button"
-              className={`rw-acc${state.settings.accent === accent.id ? ' on' : ''}`}
-              title={accent.id}
-              aria-label={accent.id}
-              aria-pressed={state.settings.accent === accent.id}
-              style={{ background: accent.swatch }}
-              onClick={() => actions.setAccent(accent.id)}
-            />
-          ))}
+        <div className="rw-card-row">
+          <span className="rw-card-label">{t('settings.accent')}</span>
+          <div className="rw-accents">
+            {ACCENTS.map((accent) => (
+              <button
+                key={accent.id}
+                type="button"
+                className={`rw-acc${state.settings.accent === accent.id ? ' on' : ''}`}
+                title={accent.id}
+                aria-label={accent.id}
+                aria-pressed={state.settings.accent === accent.id}
+                style={{ background: accent.swatch }}
+                onClick={() => actions.setAccent(accent.id)}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div className="rw-set-sec">
-        <span className="rw-set-label">{t('settings.hosts')}</span>
-        <button type="button" className="btn sm secondary" onClick={() => actions.startPairing()}>
-          {t('host.add')}
-        </button>
+      <section className="rw-card" aria-labelledby="rw-set-hosts">
+        <div className="rw-card-head">
+          <h2 className="rw-card-title" id="rw-set-hosts">{t('settings.hosts')}</h2>
+          <button type="button" className="btn xs secondary" onClick={() => actions.startPairing()}>
+            {t('host.add')}
+          </button>
+        </div>
         {state.hosts.map((host) => (
           <HostRow key={host.id} host={host} />
         ))}
-        <span className="rw-pair-hint">{t('settings.host.disconnectHint')}</span>
-      </div>
+        <p className="rw-card-hint">{t('settings.host.disconnectHint')}</p>
+      </section>
 
-      <div className="rw-set-sec">
+      <section className="rw-card" aria-labelledby="rw-set-browser">
+        <h2 className="rw-card-title" id="rw-set-browser">{t('settings.browser')}</h2>
         {logoutConfirming ? (
-          <div className="rw-set-row" role="alertdialog" aria-label={t('settings.logout')}>
-            <span className="rw-dev-confirm-text">{t('settings.logoutConfirm')}</span>
-            <button
-              type="button"
-              className="btn sm danger"
-              onClick={() => {
-                setLogoutConfirming(false);
-                actions.logoutBrowser();
-              }}
-            >
-              {t('settings.logout')}
-            </button>
-            <button type="button" className="btn sm ghost" onClick={() => setLogoutConfirming(false)}>
-              {t('common.cancel')}
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="rw-set-row">
+          <div className="rw-confirm" role="alertdialog" aria-label={t('settings.logout')}>
+            <span className="rw-confirm-text">{t('settings.logoutConfirm')}</span>
+            <div className="rw-confirm-actions">
               <button
                 type="button"
-                className="btn sm secondary"
-                title={t('settings.logoutHint')}
-                onClick={() => setLogoutConfirming(true)}
+                className="btn sm danger"
+                onClick={() => {
+                  setLogoutConfirming(false);
+                  actions.logoutBrowser();
+                }}
               >
                 {t('settings.logout')}
               </button>
+              <button type="button" className="btn sm ghost" onClick={() => setLogoutConfirming(false)}>
+                {t('common.cancel')}
+              </button>
             </div>
-            <span className="rw-pair-hint">{t('settings.logoutHint')}</span>
-          </>
+          </div>
+        ) : (
+          <div className="rw-card-row">
+            <p className="rw-card-hint">{t('settings.logoutHint')}</p>
+            <button
+              type="button"
+              className="btn sm secondary"
+              disabled={state.signingOut === true}
+              onClick={() => setLogoutConfirming(true)}
+            >
+              {t(state.signingOut ? 'settings.signingOut' : 'settings.logout')}
+            </button>
+          </div>
         )}
-      </div>
-      <div className="rw-set-sec"><a href="/enrollment">{t('enrollment.title')}</a></div>
+      </section>
+
+      <p className="rw-settings-foot">
+        <a href="/enrollment">{t('enrollment.title')}</a>
+      </p>
     </div>
   );
 }
 
-/** Wide/mid: settings render inside the main panel (mockup F7). */
+/** Wide/mid: settings render inside the main panel. */
 export function SettingsMainPanel() {
   const t = useT();
   const actions = useRemoteActions();
   return (
     <main className="main">
-      <div className="main-head">
-        <div className="main-head-l" style={{ gap: 6 }}>
-          <button
-            type="button"
-            className="sb-iconbtn"
-            title={t('settings.back')}
-            aria-label={t('settings.back')}
-            onClick={() => actions.backToChat()}
-          >
-            <Icon name="back" size={15} />
-          </button>
-          <span className="manager-task-name">{t('settings.title')}</span>
-        </div>
-      </div>
+      <PageHeader
+        title={t('settings.title')}
+        leading={<HeaderButton icon="back" label={t('settings.back')} onClick={() => actions.backToChat()} />}
+      />
       <div className="main-scroll">
-        <div style={{ maxWidth: 560, margin: '0 auto' }}>
+        <div className="rw-page-body">
           <SettingsBody />
         </div>
       </div>
@@ -198,26 +196,20 @@ export function SettingsMainPanel() {
   );
 }
 
-/** Narrow: settings as a full-screen page (mockup F8). */
+/** Narrow: settings as a full-screen page. */
 export function SettingsPage() {
   const t = useT();
   const actions = useRemoteActions();
   return (
     <div className="rw-page" data-page="settings">
-      <div className="rw-page-head">
-        <button
-          type="button"
-          className="sb-iconbtn"
-          title={t('shell.back')}
-          aria-label={t('shell.back')}
-          onClick={() => actions.backToChat()}
-        >
-          <Icon name="back" size={15} />
-        </button>
-        <span className="rw-page-title">{t('settings.title')}</span>
-      </div>
-      <div className="sb-scroll" style={{ padding: '0 0 10px' }}>
-        <SettingsBody />
+      <PageHeader
+        title={t('settings.title')}
+        leading={<HeaderButton icon="back" label={t('shell.back')} onClick={() => actions.backToChat()} />}
+      />
+      <div className="rw-page-scroll">
+        <div className="rw-page-body">
+          <SettingsBody />
+        </div>
       </div>
     </div>
   );

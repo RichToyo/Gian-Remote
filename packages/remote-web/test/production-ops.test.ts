@@ -30,7 +30,7 @@ import {
 } from '../src/controller/pending-commands.js';
 import type { DeviceRelayClientOptions, DeviceRelayLike } from '../src/transport/relay-client.js';
 import { sessionSendParams } from '../src/controller/session-send.js';
-import { emptyDraft, type RemoteFileHandle, type RemoteUiState } from '../src/controller/types.js';
+import { emptyDirectoryState, emptyDraft, type RemoteFileHandle, type RemoteUiState } from '../src/controller/types.js';
 import { MemoryBrowserIdentityStore } from '../src/transport/identity.js';
 import { MemoryCookieJar, type RemoteHttpClient } from '../src/transport/http.js';
 import { sampleInteraction } from '../src/scenarios.js';
@@ -856,7 +856,57 @@ describe('production controller operations', () => {
     }
   });
 
-  it.each(['missing', 'hash', 'stale'] as const)('retains old state and reconnects for a %s split snapshot', async (failure) => {
+  it('applies a split snapshot that finishes after a newer patch, then replays the patch instead of reconnecting', async () => {
+    const relays: FakeRelay[] = [];
+    const { controller } = await pairedController({
+      createRelay(input) { const relay = new FakeRelay(input); relays.push(relay); return relay; },
+    });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => relays[0]?.sent.some(message => message.method === 'state.refresh') === true);
+      const first = relays[0]!.sent.find(message => message.method === 'state.refresh')!;
+      const previous = { ...sampleSnapshot(hostId, 'Office'), event_sequence: 5 };
+      await relays[0]!.emit({ type: 'command.result', command_id: first.command_id, ok: true, data: previous });
+      controller.actions.refreshState();
+      await viWait(async () => relays[0]!.sent.filter(message => message.method === 'state.refresh').length === 2);
+      const refresh = relays[0]!.sent.filter(message => message.method === 'state.refresh').at(-1)!;
+      const full = { ...previous, snapshot_id: generateCanonicalId(), catalog_revision: 'new-snapshot' };
+      const parts = await splitSnapshotParts(full, 256);
+      await relays[0]!.emit({ type: 'command.result', command_id: refresh.command_id, ok: true, data: { type: 'state.snapshot.pending', snapshot_id: full.snapshot_id } });
+      const sessionId = generateCanonicalId();
+      // Built after the snapshot, delivered between its parts.
+      await relays[0]!.emit({ type: 'state.patch', host_generation: full.host_generation, event_sequence: 5,
+        base_revision: 'rev-1', revision: 'rev-2', patch: { sessions: { upsert: [remoteSession(sessionId)], remove_ids: [] } } });
+      for (const part of parts) await relays[0]!.emit(part);
+      expect(relays[0]!.isOpen).toBe(true);
+      expect(controller.state.catalogRevision).toBe('new-snapshot');
+      expect(controller.state.mutations[String(refresh.command_id)]?.phase).toBe('succeeded');
+      expect(controller.state.sessions.some(session => session.id === sessionId)).toBe(true);
+      expect(relays[0]!.sent.filter(message => message.method === 'state.refresh')).toHaveLength(2);
+    } finally { controller.close(); }
+  });
+
+  it('asks for one snapshot after a sequence gap, not one per later event', async () => {
+    const relays: FakeRelay[] = [];
+    const { controller } = await pairedController({
+      createRelay(input) { const relay = new FakeRelay(input); relays.push(relay); return relay; },
+    });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => relays[0]?.sent.some(message => message.method === 'state.refresh') === true);
+      const first = relays[0]!.sent.find(message => message.method === 'state.refresh')!;
+      const snapshot = { ...sampleSnapshot(hostId, 'Office'), event_sequence: 5 };
+      await relays[0]!.emit({ type: 'command.result', command_id: first.command_id, ok: true, data: snapshot });
+      // Sequence 5 was lost; 6..15 arrive.
+      for (let sequence = 6; sequence < 16; sequence += 1) {
+        await relays[0]!.emit({ type: 'state.patch', host_generation: snapshot.host_generation, event_sequence: sequence,
+          base_revision: `rev-${sequence - 4}`, revision: `rev-${sequence - 3}`, patch: {} });
+      }
+      expect(relays[0]!.sent.filter(message => message.method === 'state.refresh')).toHaveLength(2);
+    } finally { controller.close(); }
+  });
+
+  it.each(['missing', 'hash'] as const)('retains old state and reconnects for a %s split snapshot', async (failure) => {
     const relays: FakeRelay[] = [];
     const { controller } = await pairedController({
       createRelay(input) { const relay = new FakeRelay(input); relays.push(relay); return relay; },
@@ -880,10 +930,7 @@ describe('production controller operations', () => {
         await relays[0]!.emit(parts[0]!);
         await vi.advanceTimersByTimeAsync(SNAPSHOT_ASSEMBLY_TIMEOUT_MS);
       } else {
-        if (failure === 'stale') {
-          await relays[0]!.emit({ type: 'state.patch', host_generation: full.host_generation, event_sequence: 5, base_revision: 'rev-1', revision: 'rev-2', patch: {} });
-        }
-        for (const part of parts) await relays[0]!.emit(failure === 'hash' ? { ...part, payload_sha256: '0'.repeat(64) } : part);
+        for (const part of parts) await relays[0]!.emit({ ...part, payload_sha256: '0'.repeat(64) });
       }
       expect(relays[0]!.isOpen).toBe(false);
       expect(controller.state.catalogRevision).toBe('cat-1');
@@ -1389,6 +1436,12 @@ describe('production controller operations', () => {
     });
     controller.actions.challengeLogin(hostId);
     await viWait(async () => controller.state.connection.kind === 'online');
+    // Canonical events wait for the initial snapshot; answer it first.
+    const initialA = relays.get(hostId)!.sent.find(message => message.method === 'state.refresh')!;
+    await relays.get(hostId)!.emit({
+      type: 'command.result', command_id: String(initialA.command_id), ok: true,
+      data: sampleSnapshot(hostId, 'Office'),
+    });
     const sessionA = {
       id: generateCanonicalId(),
       revision: '1',
@@ -2444,6 +2497,566 @@ describe('production controller operations', () => {
   });
 });
 
+describe('Remote Web reliability fixes', () => {
+  function relayList() {
+    const relays: FakeRelay[] = [];
+    return { relays, createRelay(input: DeviceRelayClientOptions) { const relay = new FakeRelay(input); relays.push(relay); return relay; } };
+  }
+
+  async function answerInitialSnapshot(relay: FakeRelay, snapshot: RemoteStateSnapshot): Promise<void> {
+    await viWait(async () => relay.sent.some(message => message.method === 'state.refresh'));
+    const request = relay.sent.find(message => message.method === 'state.refresh')!;
+    await relay.emit({ type: 'command.result', command_id: String(request.command_id), ok: true, data: snapshot });
+  }
+
+  it('pauses a tab whose connection another tab took, and takes it back only when asked', async () => {
+    const { relays, createRelay } = relayList();
+    const { controller } = await pairedController({ reconnectBaseMs: 10, reconnectMaxMs: 20, createRelay });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => controller.state.connection.kind === 'online');
+      // The Server closes the still-bound socket: another tab connected as this device.
+      relays[0]!.close('replaced');
+      expect(controller.state.connection).toEqual({ kind: 'taken_over' });
+      window.dispatchEvent(new Event('online'));
+      await new Promise(resolve => setTimeout(resolve, 80));
+      expect(relays).toHaveLength(1);
+      expect(controller.state.connection.kind).toBe('taken_over');
+      controller.actions.refreshState();
+      await viWait(async () => relays.length === 2 && controller.state.connection.kind === 'online');
+    } finally { controller.close(); }
+  });
+
+  it('sends a message once when Enter is pressed again before the Host answers', async () => {
+    const { relays, createRelay } = relayList();
+    const { controller } = await pairedController({ createRelay });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => controller.state.connection.kind === 'online');
+      const sessionId = generateCanonicalId();
+      await answerInitialSnapshot(relays[0]!, { ...sampleSnapshot(hostId, 'Office'), sessions: [remoteSession(sessionId)] });
+      controller.actions.setDraftText(sessionId, 'only once');
+      controller.actions.sendDraft(sessionId);
+      controller.actions.sendDraft(sessionId);
+      await viWait(async () => relays[0]!.sent.some(message => message.method === 'session.send'));
+      await new Promise(resolve => setTimeout(resolve, 40));
+      controller.actions.sendDraft(sessionId);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      const sends = relays[0]!.sent.filter(message => message.method === 'session.send');
+      expect(sends).toHaveLength(1);
+      await relays[0]!.emit({ type: 'command.result', command_id: String(sends[0]!.command_id), ok: true,
+        data: { session: remoteSession(sessionId) } });
+      await viWait(async () => controller.state.drafts[sessionId]?.text === '');
+      controller.actions.setDraftText(sessionId, 'next one');
+      controller.actions.sendDraft(sessionId);
+      await viWait(async () => relays[0]!.sent.filter(message => message.method === 'session.send').length === 2);
+    } finally { controller.close(); }
+  });
+
+  it('does not roll a session back to the result a recovered send stored when it first ran', async () => {
+    const { relays, createRelay } = relayList();
+    const { controller } = await pairedController({ reconnectBaseMs: 10, createRelay });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => controller.state.connection.kind === 'online');
+      const sessionId = generateCanonicalId();
+      const snapshot = { ...sampleSnapshot(hostId, 'Office'), event_sequence: 5, sessions: [remoteSession(sessionId)] };
+      await answerInitialSnapshot(relays[0]!, snapshot);
+      controller.actions.setDraftText(sessionId, 'survive reconnect');
+      controller.actions.sendDraft(sessionId);
+      await viWait(async () => relays[0]!.sent.some(message => message.method === 'session.send'));
+      const original = relays[0]!.sent.find(message => message.method === 'session.send')!;
+      relays[0]!.close('socket_closed');
+      await viWait(async () => relays.length === 2 && relays[1]!.sent.some(message => message.method === 'command.status'));
+      await relays[1]!.emit({ type: 'resume.ok', host_generation: snapshot.host_generation, replay_from: 5, replay_through: 5, revision: 'rev-2' });
+      await relays[1]!.emit({ type: 'event', host_generation: snapshot.host_generation, event_sequence: 5,
+        event: { kind: 'session.updated', session: { ...remoteSession(sessionId), revision: 'session-rev-3', name: 'Newer' } } });
+      expect(controller.state.sessions.find(session => session.id === sessionId)?.name).toBe('Newer');
+      const statusRequest = relays[1]!.sent.find(message => message.method === 'command.status')!;
+      await relays[1]!.emit({ type: 'command.result', command_id: String(statusRequest.command_id), ok: true, data: {
+        command_id: String(original.command_id), state: 'succeeded',
+        result: { session: { ...remoteSession(sessionId), revision: 'session-rev-2', name: 'Stored at first run' } },
+      } });
+      await viWait(async () => controller.state.drafts[sessionId]?.text === '');
+      expect(controller.state.sessions.find(session => session.id === sessionId)?.name).toBe('Newer');
+    } finally { controller.close(); }
+  });
+
+  it('rejects a whole snapshot that names a different Host', async () => {
+    const { relays, createRelay } = relayList();
+    const { controller } = await pairedController({ createRelay });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => controller.state.connection.kind === 'online');
+      await answerInitialSnapshot(relays[0]!, { ...sampleSnapshot(hostB, 'Impostor'), sessions: [remoteSession(generateCanonicalId())] });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(controller.state.currentHostId).toBe(hostId);
+      expect(controller.state.sessions).toHaveLength(0);
+      expect(controller.state.snapshotReceivedAt).toBeNull();
+    } finally { controller.close(); }
+  });
+
+  it('verifies the Server identity once, not on every reconnect', async () => {
+    let identityPosts = 0;
+    const counted: typeof fetch = async (input, init) => { identityPosts += 1; return serverIdentityFetch(input as RequestInfo, init); };
+    const { relays, createRelay } = relayList();
+    const { controller } = await pairedController({ reconnectBaseMs: 10, identityFetch: counted, createRelay });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => controller.state.connection.kind === 'online');
+      for (let index = 0; index < 3; index += 1) {
+        relays.at(-1)!.close('socket_closed');
+        await viWait(async () => relays.length === index + 2 && controller.state.connection.kind === 'online');
+      }
+      expect(identityPosts).toBe(1);
+    } finally { controller.close(); }
+  });
+
+  it('stops on a changed Server identity until the user trusts it', async () => {
+    const { relays, createRelay } = relayList();
+    // This browser pinned another Server identity earlier.
+    localStorage.setItem('gian.remote.server_identity_fingerprint', 'f'.repeat(64));
+    const { controller } = await pairedController({ reconnectBaseMs: 10, createRelay });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => controller.state.connection.kind === 'server_changed');
+      await new Promise(resolve => setTimeout(resolve, 60));
+      expect(relays).toHaveLength(0);
+      expect(controller.state.connection.kind).toBe('server_changed');
+      controller.actions.trustServerIdentity();
+      expect(localStorage.getItem('gian.remote.server_identity_fingerprint')).toBeNull();
+      await viWait(async () => controller.state.connection.kind === 'online');
+    } finally { controller.close(); localStorage.clear(); }
+  });
+
+  it('asks to pair again, once, when this browser lost its key, and can still remove the Host', async () => {
+    const identity = new MemoryBrowserIdentityStore();
+    const { relays, createRelay } = relayList();
+    const { controller } = await pairedController({ identity, extraHosts: [hostB], reconnectBaseMs: 10, createRelay });
+    try {
+      await identity.clearHost(hostId);
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => controller.state.connection.kind === 'device_revoked');
+      expect(controller.state.connection).toEqual({ kind: 'device_revoked', reason: 'key_missing' });
+      await new Promise(resolve => setTimeout(resolve, 60));
+      expect(relays).toHaveLength(0);
+
+      // A Host without a key leaves the list instead of failing to self-revoke.
+      await identity.clearHost(hostB);
+      controller.actions.disconnectHost(hostB);
+      await viWait(async () => !controller.state.hosts.some(host => host.id === hostB));
+    } finally { controller.close(); }
+  });
+
+  it("ends the pairing when the computer's encryption key changes after the first login", async () => {
+    const first = await exportPublicJwk((await generateP256KeyPair()).publicKey);
+    const second = await exportPublicJwk((await generateP256KeyPair()).publicKey);
+    let logins = 0;
+    const { relays, createRelay } = relayList();
+    const { controller, identity } = await pairedController({
+      reconnectBaseMs: 10, accessTokenTtlMs: 1, createRelay,
+      // No refresh cookie: every reconnect logs in with the device key again.
+      beforeRequest: (path) => { if (path === '/api/v1/sessions/refresh') throw new RemoteProtocolError('AUTH_REQUIRED', 'no cookie'); },
+      hostKeySequence: async () => (logins++ === 0 ? first : second),
+    });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => controller.state.connection.kind === 'online');
+      relays[0]!.close('socket_closed');
+      await viWait(async () => controller.state.connection.kind === 'device_revoked');
+      expect(controller.state.connection).toEqual({ kind: 'device_revoked', reason: 'host_key_changed' });
+      expect(await identity.listHostIds()).toEqual([]);
+    } finally { controller.close(); }
+  });
+
+  it('signs out by revoking every pairing of this browser and clearing what was on screen', async () => {
+    const revoked: string[] = [];
+    const { relays, createRelay } = relayList();
+    const { controller, identity } = await pairedController({
+      extraHosts: [hostB], createRelay,
+      del: async (path, body) => { revoked.push(String((body as { host_id?: string } | undefined)?.host_id ?? path)); return { protocol: AUTH_PROTOCOL, host_id: hostId, status: 'revoked' }; },
+    });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => controller.state.connection.kind === 'online');
+      const sessionId = generateCanonicalId();
+      await answerInitialSnapshot(relays[0]!, { ...sampleSnapshot(hostId, 'Office'), sessions: [remoteSession(sessionId)] });
+      controller.actions.setDraftText(sessionId, 'private');
+      controller.actions.logoutBrowser();
+      await viWait(async () => (await identity.listHostIds()).length === 0 && controller.state.sessions.length === 0);
+      expect(revoked).toHaveLength(2);
+      expect(controller.state.hosts).toEqual([]);
+      expect(controller.state.drafts).toEqual({});
+      expect(controller.state.currentHostId).toBeNull();
+      expect(controller.state.auth.kind).toBe('pairing');
+    } finally { controller.close(); }
+  });
+});
+
+describe('Remote Web directory and attachments', () => {
+  function directoryRelays() {
+    const relays: FakeRelay[] = [];
+    return {
+      relays,
+      createRelay(input: DeviceRelayClientOptions) {
+        const relay = new FakeRelay(input);
+        relay.negotiatedCapabilities = ['wire.session_directory_v1'];
+        relays.push(relay);
+        return relay;
+      },
+    };
+  }
+
+  function entry(id: string, partial: Record<string, unknown> = {}) {
+    return {
+      id, revision: '1', name: `Chat ${id.slice(0, 4)}`,
+      workspace: { id: generateCanonicalId(), name: '~/Coding/app' },
+      task: null, agent: { id: generateCanonicalId(), name: 'Codex', proxy: 'codex' },
+      status: 'done', unread: false, waiting_for_user: false,
+      last_activity_at: Date.now() - 60_000, completed_at: null, ...partial,
+    };
+  }
+
+  function page(view: string, entries: unknown[], next: string | null, state?: 'cursor_invalid') {
+    return {
+      version: 1, view, as_of: Date.now(), revision: 'dir-1', entries,
+      state: state ?? (next ? 'incomplete' : 'complete'), next_cursor: next,
+    };
+  }
+
+  async function connected(options: Parameters<typeof pairedController>[0] = {}) {
+    const { relays, createRelay } = directoryRelays();
+    const paired = await pairedController({ createRelay, ...options });
+    paired.controller.actions.challengeLogin(hostId);
+    await viWait(async () => paired.controller.state.connection.kind === 'online');
+    return { ...paired, relays };
+  }
+
+  async function answer(relay: FakeRelay, method: string, data: unknown, nth = 0): Promise<{ params?: unknown }> {
+    await viWait(async () => relay.sent.filter(message => message.method === method).length > nth);
+    const request = relay.sent.filter(message => message.method === method)[nth]!;
+    await relay.emit({ type: 'command.result', command_id: String(request.command_id), ok: true, data });
+    return request;
+  }
+
+  it('opts into the directory in hello and loads the Tasks view after the snapshot, page by page', async () => {
+    let helloOptions: unknown;
+    const { relays, createRelay } = directoryRelays();
+    const { controller } = await pairedController({ createRelay: input => { helloOptions = (input as { hello?: unknown }).hello; return createRelay(input); } });
+    try {
+      controller.actions.challengeLogin(hostId);
+      await viWait(async () => controller.state.connection.kind === 'online');
+      expect(helloOptions).toEqual({ sessionDirectoryV1: true });
+      expect(controller.state.directory?.supported).toBe(true);
+      await answer(relays[0]!, 'state.refresh', sampleSnapshot(hostId, 'Office'));
+      const first = entry(generateCanonicalId());
+      const second = entry(generateCanonicalId());
+      const request = await answer(relays[0]!, 'directory.list', page('tasks', [first], 'cursor-2'));
+      expect(request.params).toMatchObject({ view: 'tasks', limit: 64 });
+      const next = await answer(relays[0]!, 'directory.list', page('tasks', [second], null), 1);
+      expect(next.params).toMatchObject({ view: 'tasks', cursor: 'cursor-2' });
+      await viWait(async () => controller.state.directory?.lists.tasks.status === 'complete');
+      expect(controller.state.directory?.lists.tasks.entries.map(item => item.id)).toEqual([first.id, second.id]);
+    } finally { controller.close(); }
+  });
+
+  it('starts a list over once when its cursor is no longer valid', async () => {
+    const { controller, relays } = await connected();
+    try {
+      await answer(relays[0]!, 'state.refresh', sampleSnapshot(hostId, 'Office'));
+      await answer(relays[0]!, 'directory.list', page('tasks', [], 'stale'), 0);
+      await answer(relays[0]!, 'directory.list', page('tasks', [], null, 'cursor_invalid'), 1);
+      const fresh = entry(generateCanonicalId());
+      const restart = await answer(relays[0]!, 'directory.list', page('tasks', [fresh], null), 2);
+      expect((restart.params as { cursor?: string }).cursor).toBeUndefined();
+      await viWait(async () => controller.state.directory?.lists.tasks.status === 'complete');
+      expect(controller.state.directory?.lists.tasks.entries.map(item => item.id)).toEqual([fresh.id]);
+    } finally { controller.close(); }
+  });
+
+  it('coalesces directory.changed hints into one refresh', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { controller, relays } = await connected();
+    try {
+      await answer(relays[0]!, 'state.refresh', sampleSnapshot(hostId, 'Office'));
+      await answer(relays[0]!, 'directory.list', page('tasks', [], null));
+      for (let index = 0; index < 20; index += 1) {
+        await relays[0]!.emit({ type: 'directory.changed', version: 1, host_generation: generateCanonicalId(), revision: `r${index}` });
+      }
+      await vi.advanceTimersByTimeAsync(1_600);
+      expect(relays[0]!.sent.filter(message => message.method === 'directory.list')).toHaveLength(2);
+    } finally { controller.close(); vi.useRealTimers(); }
+  });
+
+  it('opens a chat outside the snapshot through session.subscribe and keeps it across snapshots', async () => {
+    const { controller, relays } = await connected();
+    try {
+      await answer(relays[0]!, 'state.refresh', sampleSnapshot(hostId, 'Office'));
+      const outside = entry(generateCanonicalId(), { name: 'Outside any Task' });
+      await answer(relays[0]!, 'directory.list', page('tasks', [outside], null));
+      await viWait(async () => controller.state.directory?.lists.tasks.status === 'complete');
+      controller.actions.selectSession(outside.id);
+      expect(controller.state.view).toEqual({ kind: 'chat', sessionId: outside.id });
+      expect(controller.state.directory?.opening).toBe(outside.id);
+      const session = { ...remoteSession(outside.id), name: 'Outside any Task' };
+      const interaction = { ...sampleInteraction(), id: generateCanonicalId(), session_id: outside.id, turn_id: generateCanonicalId(),
+        presentation: { ...sampleInteraction().presentation, actions: [{ id: generateCanonicalId(), label: 'Allow once', tone: 'default' as const }] } };
+      await answer(relays[0]!, 'session.subscribe', { session, cursor: 'c1', interactions: [interaction] });
+      await viWait(async () => controller.state.sessions.some(item => item.id === outside.id));
+      expect(controller.state.directory?.opening).toBeNull();
+      expect(controller.state.directory?.pinned).toContain(outside.id);
+      expect(controller.state.interactions.map(item => item.id)).toContain(interaction.id);
+      await viWait(async () => relays[0]!.sent.some(message => message.method === 'session.page'));
+      controller.actions.setDraftText(outside.id, 'kept');
+      // A later snapshot does not carry it; it stays open with its draft.
+      controller.actions.refreshState();
+      await answer(relays[0]!, 'state.refresh', { ...sampleSnapshot(hostId, 'Office'), snapshot_id: generateCanonicalId() }, 1);
+      await viWait(async () => controller.state.connection.kind === 'online');
+      expect(controller.state.view).toEqual({ kind: 'chat', sessionId: outside.id });
+      expect(controller.state.sessions.some(item => item.id === outside.id)).toBe(true);
+      expect(controller.state.drafts[outside.id]?.text).toBe('kept');
+    } finally { controller.close(); }
+  });
+
+  it('keeps the open chat when its Task completes, and re-reads it', async () => {
+    const { controller, relays } = await connected();
+    try {
+      const sessionId = generateCanonicalId();
+      const snapshot = { ...sampleSnapshot(hostId, 'Office'), event_sequence: 3, sessions: [remoteSession(sessionId)] };
+      await answer(relays[0]!, 'state.refresh', snapshot);
+      controller.actions.selectSession(sessionId);
+      const subscribes = () => relays[0]!.sent.filter(message => message.method === 'session.subscribe').length;
+      await viWait(async () => subscribes() >= 1);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      const before = subscribes();
+      await relays[0]!.emit({ type: 'state.patch', host_generation: snapshot.host_generation, event_sequence: 3,
+        base_revision: 'rev-1', revision: 'rev-2', patch: { sessions: { upsert: [], remove_ids: [sessionId] } } });
+      expect(controller.state.view).toEqual({ kind: 'chat', sessionId });
+      expect(controller.state.sessions.some(item => item.id === sessionId)).toBe(true);
+      expect(controller.state.directory?.pinned).toContain(sessionId);
+      await viWait(async () => subscribes() === before + 1);
+    } finally { controller.close(); }
+  });
+
+  it('drops a directory chat the Host no longer lets this device open', async () => {
+    const { controller, relays } = await connected();
+    try {
+      await answer(relays[0]!, 'state.refresh', sampleSnapshot(hostId, 'Office'));
+      const gone = entry(generateCanonicalId());
+      await answer(relays[0]!, 'directory.list', page('tasks', [gone], null));
+      await viWait(async () => controller.state.directory?.lists.tasks.status === 'complete');
+      controller.actions.selectSession(gone.id);
+      await viWait(async () => relays[0]!.sent.some(message => message.method === 'session.subscribe'));
+      const request = relays[0]!.sent.find(message => message.method === 'session.subscribe')!;
+      await relays[0]!.emit({ type: 'command.result', command_id: String(request.command_id), ok: false,
+        error: { code: 'REMOTE_CAPABILITY_DENIED', message: 'conversation is not available to this device' } });
+      await viWait(async () => controller.state.view.kind === 'empty');
+      expect(controller.state.directory?.lists.tasks.entries).toEqual([]);
+    } finally { controller.close(); }
+  });
+
+  it("never carries pinned chats of one Host into another Host's snapshot", () => {
+    const pinnedId = generateCanonicalId();
+    const started = {
+      ...emptyState(),
+      currentHostId: hostB,
+      sessions: [remoteSession(pinnedId)],
+      drafts: { [pinnedId]: { text: 'from A', attachments: [], contextItems: [], document: null } },
+      view: { kind: 'chat' as const, sessionId: pinnedId },
+      directory: { ...emptyDirectoryState(hostId), supported: true, pinned: [pinnedId] },
+    };
+    const next = applySnapshotToState(started, sampleSnapshot(hostB, 'Laptop'));
+    expect(next.sessions.map(session => session.id)).not.toContain(pinnedId);
+    expect(next.drafts[pinnedId]).toBeUndefined();
+    expect(next.view).toEqual({ kind: 'empty' });
+  });
+
+  it('a late subscribe answer for a chat the user already left is not adopted and does not re-subscribe', async () => {
+    const { controller, relays } = await connected();
+    try {
+      await answer(relays[0]!, 'state.refresh', sampleSnapshot(hostId, 'Office'));
+      const first = entry(generateCanonicalId());
+      const second = entry(generateCanonicalId());
+      await answer(relays[0]!, 'directory.list', page('tasks', [first, second], null));
+      await viWait(async () => controller.state.directory?.lists.tasks.status === 'complete');
+      controller.actions.selectSession(first.id);
+      controller.actions.selectSession(second.id);
+      const subscribes = () => relays[0]!.sent.filter(message => message.method === 'session.subscribe');
+      await viWait(async () => subscribes().length === 2);
+      // The answer for the first chat arrives after the user moved on.
+      await relays[0]!.emit({ type: 'command.result', command_id: String(subscribes()[0]!.command_id), ok: true,
+        data: { session: remoteSession(first.id), cursor: 'c1', interactions: [] } });
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(controller.state.sessions.some(item => item.id === first.id)).toBe(false);
+      expect(subscribes()).toHaveLength(2);
+      // The chat on screen is adopted with one subscribe and one history read.
+      await relays[0]!.emit({ type: 'command.result', command_id: String(subscribes()[1]!.command_id), ok: true,
+        data: { session: remoteSession(second.id), cursor: 'c2', interactions: [] } });
+      await viWait(async () => controller.state.sessions.some(item => item.id === second.id));
+      await viWait(async () => relays[0]!.sent.some(message => message.method === 'session.page'));
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(subscribes()).toHaveLength(2);
+      expect(relays[0]!.sent.filter(message => message.method === 'session.page')).toHaveLength(1);
+    } finally { controller.close(); }
+  });
+
+  it('keeps the open directory chat when a snapshot no longer carries it', async () => {
+    const { controller, relays } = await connected();
+    try {
+      const sessionId = generateCanonicalId();
+      await answer(relays[0]!, 'state.refresh', { ...sampleSnapshot(hostId, 'Office'), sessions: [remoteSession(sessionId)] });
+      controller.actions.selectSession(sessionId);
+      controller.actions.setDraftText(sessionId, 'unsent');
+      controller.actions.refreshState();
+      await answer(relays[0]!, 'state.refresh', { ...sampleSnapshot(hostId, 'Office'), snapshot_id: generateCanonicalId() }, 1);
+      await viWait(async () => controller.state.connection.kind === 'online');
+      expect(controller.state.view).toEqual({ kind: 'chat', sessionId });
+      expect(controller.state.drafts[sessionId]?.text).toBe('unsent');
+      expect(controller.state.directory?.pinned).toContain(sessionId);
+    } finally { controller.close(); }
+  });
+
+  it('replays frames held during a refresh that fails', async () => {
+    const { controller, relays } = await connected();
+    try {
+      const snapshot = { ...sampleSnapshot(hostId, 'Office'), event_sequence: 5 };
+      await answer(relays[0]!, 'state.refresh', snapshot);
+      controller.actions.refreshState();
+      await viWait(async () => relays[0]!.sent.filter(message => message.method === 'state.refresh').length === 2);
+      const sessionId = generateCanonicalId();
+      await relays[0]!.emit({ type: 'state.patch', host_generation: snapshot.host_generation, event_sequence: 5,
+        base_revision: 'rev-1', revision: 'rev-2', patch: { sessions: { upsert: [remoteSession(sessionId)], remove_ids: [] } } });
+      expect(controller.state.sessions.some(item => item.id === sessionId)).toBe(false);
+      const refresh = relays[0]!.sent.filter(message => message.method === 'state.refresh')[1]!;
+      await relays[0]!.emit({ type: 'command.result', command_id: String(refresh.command_id), ok: false,
+        error: { code: 'INTERNAL_ERROR', message: 'snapshot failed' } });
+      await viWait(async () => controller.state.sessions.some(item => item.id === sessionId));
+    } finally { controller.close(); }
+  });
+
+  it('a paused tab stays paused when the UI reads while it has no connection', async () => {
+    const { controller, relays } = await connected({ reconnectBaseMs: 10 });
+    try {
+      const sessionId = generateCanonicalId();
+      await answer(relays[0]!, 'state.refresh', { ...sampleSnapshot(hostId, 'Office'), sessions: [remoteSession(sessionId)] });
+      relays[0]!.close('replaced');
+      expect(controller.state.connection.kind).toBe('taken_over');
+      controller.actions.selectSession(sessionId);
+      controller.actions.refreshCatalog();
+      await new Promise(resolve => setTimeout(resolve, 40));
+      expect(controller.state.connection.kind).toBe('taken_over');
+      window.dispatchEvent(new Event('online'));
+      await new Promise(resolve => setTimeout(resolve, 40));
+      expect(relays).toHaveLength(1);
+    } finally { controller.close(); }
+  });
+
+  it('a cancelled upload no longer holds Send', async () => {
+    const { controller, relays } = await connected();
+    try {
+      const sessionId = generateCanonicalId();
+      await answer(relays[0]!, 'state.refresh', { ...sampleSnapshot(hostId, 'Office'), sessions: [remoteSession(sessionId)] });
+      controller.actions.setDraftText(sessionId, 'go');
+      controller.actions.uploadDraftAttachment(sessionId, { name: 'slow.bin', mime: 'application/octet-stream', size: 4, bytes: new Uint8Array(4) });
+      controller.actions.sendDraft(sessionId);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(relays[0]!.sent.some(message => message.method === 'session.send')).toBe(false);
+      controller.actions.dismissUpload(sessionId, controller.state.uploads![sessionId]![0]!.id);
+      controller.actions.sendDraft(sessionId);
+      await viWait(async () => relays[0]!.sent.some(message => message.method === 'session.send'));
+    } finally { controller.close(); }
+  });
+
+  it('a failed preview transfer frees its slot at once', async () => {
+    const { controller, relays } = await connected();
+    try {
+      const sessionId = generateCanonicalId();
+      await answer(relays[0]!, 'state.refresh', { ...sampleSnapshot(hostId, 'Office'), sessions: [remoteSession(sessionId)] });
+      controller.actions.requestThumbnail(sessionId, { url: 'ref', mime: 'image/png', size: 4, name: 'a.png' });
+      const handle = { id: generateCanonicalId(), sessionId, label: 'a.png' };
+      const file = { ...previewResult(handle, generateCanonicalId(), 4).file, mime: 'image/png' };
+      await answer(relays[0]!, 'file.resolve', file);
+      const transferId = generateCanonicalId();
+      await answer(relays[0]!, 'file.preview', { transfer_id: transferId, preview_max_bytes: MAX_FILE_PREVIEW_BYTES, file });
+      await viWait(async () => relays[0]!.sent.some(message => message.type === 'download.request'));
+      await relays[0]!.emit({ type: 'transfer.error', transfer_id: transferId, code: 'FILE_REFERENCE_EXPIRED', message: 'gone' });
+      await viWait(async () => controller.state.thumbnails?.[`${sessionId}:ref`]?.status === 'error');
+    } finally { controller.close(); }
+  });
+
+  it('creates a chat outside any Task only on directory Hosts, without a task_id', async () => {
+    const { controller, relays } = await connected();
+    try {
+      await answer(relays[0]!, 'state.refresh', sampleSnapshot(hostId, 'Office'));
+      controller.actions.createSession({ workspaceId: generateCanonicalId(), agentId: generateCanonicalId(), taskId: '' });
+      const createdId = generateCanonicalId();
+      const create = await answer(relays[0]!, 'session.create', remoteSession(createdId));
+      expect(create.params).not.toHaveProperty('task_id');
+      await viWait(async () => controller.state.view.kind === 'chat');
+      const created = (controller.state.view as { sessionId: string }).sessionId;
+      expect(controller.state.directory?.pinned).toContain(created);
+      // The new chat subscribes and loads at once; nothing else would.
+      await viWait(async () => relays[0]!.sent.some(message => message.method === 'session.subscribe'
+        && (message.params as { session_id?: string }).session_id === createdId)
+        && relays[0]!.sent.some(message => message.method === 'session.page'
+          && (message.params as { session_id?: string }).session_id === createdId));
+    } finally { controller.close(); }
+  });
+
+  it('shows an upload until the Host confirms it, holds Send meanwhile, and explains failures', async () => {
+    const { controller, relays } = await connected();
+    try {
+      const sessionId = generateCanonicalId();
+      await answer(relays[0]!, 'state.refresh', { ...sampleSnapshot(hostId, 'Office'), sessions: [remoteSession(sessionId)] });
+      controller.actions.uploadDraftAttachment(sessionId, { name: 'big.bin', mime: 'application/octet-stream',
+        size: 21 * 1024 * 1024, bytes: new Uint8Array(1) });
+      expect(controller.state.uploads?.[sessionId]).toEqual([expect.objectContaining({ name: 'big.bin', status: 'failed', error: 'FILE_TOO_LARGE' })]);
+      controller.actions.dismissUpload(sessionId, controller.state.uploads![sessionId]![0]!.id);
+      expect(controller.state.uploads?.[sessionId]).toBeUndefined();
+
+      controller.actions.setDraftText(sessionId, 'with a file');
+      controller.actions.uploadDraftAttachment(sessionId, { name: 'notes.txt', mime: 'text/plain', size: 4, bytes: new Uint8Array([1, 2, 3, 4]) });
+      expect(controller.state.uploads?.[sessionId]?.[0]).toMatchObject({ name: 'notes.txt', status: 'uploading' });
+      controller.actions.sendDraft(sessionId);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(relays[0]!.sent.some(message => message.method === 'session.send')).toBe(false);
+      // The connection drops mid-upload: the chip says so instead of vanishing.
+      relays[0]!.close('socket_closed');
+      await viWait(async () => controller.state.uploads?.[sessionId]?.[0]?.status === 'failed');
+      expect(controller.state.uploads?.[sessionId]?.[0]?.error).toBe('UNKNOWN_OUTCOME');
+    } finally { controller.close(); }
+  });
+
+  it('loads an image attachment preview over the encrypted channel, once', async () => {
+    const { controller, relays } = await connected();
+    try {
+      const sessionId = generateCanonicalId();
+      await answer(relays[0]!, 'state.refresh', { ...sampleSnapshot(hostId, 'Office'), sessions: [remoteSession(sessionId)] });
+      const attachment = { url: 'attachment-ref', mime: 'image/png', size: 4, name: 'shot.png' };
+      controller.actions.requestThumbnail(sessionId, attachment);
+      controller.actions.requestThumbnail(sessionId, attachment);
+      const key = `${sessionId}:attachment-ref`;
+      expect(controller.state.thumbnails?.[key]?.status).toBe('loading');
+      const handle = { id: generateCanonicalId(), sessionId, label: 'shot.png' };
+      const file = { ...previewResult(handle, generateCanonicalId(), 4).file, mime: 'image/png' };
+      await answer(relays[0]!, 'file.resolve', file);
+      const transferId = generateCanonicalId();
+      await answer(relays[0]!, 'file.preview', { transfer_id: transferId, preview_max_bytes: MAX_FILE_PREVIEW_BYTES, file });
+      await viWait(async () => relays[0]!.sent.some(message => message.type === 'download.request' && message.transfer_id === transferId));
+      const bytes = new Uint8Array([137, 80, 78, 71]);
+      await relays[0]!.emit({ ...(await legalDownloadMetadata(transferId, 'shot.png', bytes, true)), mime: 'image/png' });
+      await relays[0]!.emit(legalDownloadChunk(transferId, bytes));
+      await relays[0]!.emit(await legalDownloadComplete(transferId, bytes));
+      await viWait(async () => controller.state.thumbnails?.[key]?.status === 'ready');
+      expect(controller.state.thumbnails?.[key]?.dataUrl).toMatch(/^data:image\/png;base64,/);
+      expect(relays[0]!.sent.filter(message => message.method === 'file.resolve')).toHaveLength(1);
+      // Too large or not an image: the chip stays, nothing is fetched.
+      controller.actions.requestThumbnail(sessionId, { ...attachment, url: 'huge', size: MAX_FILE_PREVIEW_BYTES + 1 });
+      expect(controller.state.thumbnails?.[`${sessionId}:huge`]?.status).toBe('skipped');
+    } finally { controller.close(); }
+  });
+});
+
 class FakeRelay implements DeviceRelayLike {
   isOpen = false;
   negotiatedCapabilities: readonly string[] | null = null;
@@ -2607,8 +3220,11 @@ async function pairedController(options: {
   reconnectMaxMs?: number;
   accessTokenTtlMs?: number;
   rejectSecondCachedTicket?: boolean;
+  /** Host E2E key presented by each successive device-login. */
+  hostKeySequence?: () => Promise<{ kty: 'EC'; crv: 'P-256'; x: string; y: string } | undefined>;
+  identity?: MemoryBrowserIdentityStore;
 } = {}) {
-  const identity = new MemoryBrowserIdentityStore();
+  const identity = options.identity ?? new MemoryBrowserIdentityStore();
   const cache = options.cache ?? new MemoryEncryptedHostCache();
   await cache.put('__account__', { protocol: 'gian.remote.account/1', status: 'authorized', role: 'controller',
     installation_id: generateCanonicalId(), account: { id: '42', login: 'fixture-owner' },
@@ -2673,7 +3289,7 @@ async function pairedController(options: {
           device_id: target === hostB ? deviceB : deviceA,
           host_id: target,
           crypto_connection_id: generateCanonicalId(),
-          host_public_key: hostKey,
+          host_public_key: (await options.hostKeySequence?.()) ?? hostKey,
         };
       }
       if (path === '/api/v1/sessions/refresh') {

@@ -1,8 +1,20 @@
 import {
   exportPublicJwk,
   generateCanonicalId,
+  RemoteProtocolError,
   signBytes,
 } from '@gian/remote-protocol';
+import { HostKeyChangedError } from './host-key-pin.js';
+
+/** This browser holds no key for the Host: the pairing cannot be used or
+ *  self-revoked from here any more. Distinct from storage that failed to
+ *  answer, which stays an ordinary, retryable error. */
+export class MissingHostKeyError extends RemoteProtocolError {
+  constructor(hostId: string) {
+    super('DEVICE_NOT_PAIRED', `no Host-scoped browser key for ${hostId}`);
+    this.name = 'MissingHostKeyError';
+  }
+}
 
 async function generateHostScopedSigningKey(): Promise<CryptoKeyPair> {
   return crypto.subtle.generateKey(
@@ -16,6 +28,8 @@ export interface HostScopedIdentity {
   hostId: string;
   publicJwk: { kty: 'EC'; crv: 'P-256'; x: string; y: string };
   privateKey: CryptoKey;
+  /** The Host's E2E key as first seen at login (see host-key-pin.ts). */
+  hostKeyFingerprint?: string;
 }
 
 export interface BrowserIdentityStore {
@@ -24,6 +38,9 @@ export interface BrowserIdentityStore {
   createPending(): Promise<HostScopedIdentity>;
   bindPending(hostId: string): Promise<HostScopedIdentity>;
   listHostIds(): Promise<string[]>;
+  /** Pin the Host's E2E key on first sight; throw HostKeyChangedError when
+   *  a later login presents a different one. */
+  checkHostKey(hostId: string, fingerprint: string): Promise<void>;
   clearHost(hostId: string): Promise<void>;
   clearAll(): Promise<void>;
 }
@@ -39,9 +56,7 @@ export class MemoryBrowserIdentityStore implements BrowserIdentityStore {
 
   async hostIdentity(hostId: string): Promise<HostScopedIdentity> {
     const existing = this.hosts.get(hostId);
-    if (!existing) {
-      throw new Error(`no Host-scoped browser key for ${hostId}`);
-    }
+    if (!existing) throw new MissingHostKeyError(hostId);
     return existing;
   }
 
@@ -70,6 +85,21 @@ export class MemoryBrowserIdentityStore implements BrowserIdentityStore {
 
   async listHostIds(): Promise<string[]> {
     return [...this.hosts.keys()];
+  }
+
+  async checkHostKey(hostId: string, fingerprint: string): Promise<void> {
+    const identity = await this.hostIdentity(hostId);
+    if (identity.hostKeyFingerprint === undefined) {
+      const pinned = { ...identity, hostKeyFingerprint: fingerprint };
+      this.hosts.set(hostId, pinned);
+      await this.persist(pinned);
+      return;
+    }
+    if (identity.hostKeyFingerprint !== fingerprint) throw new HostKeyChangedError(hostId);
+  }
+
+  protected async persist(_identity: HostScopedIdentity): Promise<void> {
+    // Memory is the store.
   }
 
   async clearHost(hostId: string): Promise<void> {
@@ -118,8 +148,10 @@ export class LocalStorageBrowserIdentityStore extends MemoryBrowserIdentityStore
     try {
       return await super.hostIdentity(hostId);
     } catch {
+      // A storage failure propagates as a plain (retryable) error; only a
+      // successful read that finds nothing means the key is gone.
       const stored = await idbGetIdentity(hostId, this.serverOrigin);
-      if (!stored) throw new Error(`no Host-scoped browser key for ${hostId}`);
+      if (!stored) throw new MissingHostKeyError(hostId);
       this.hydrate(stored);
       return stored;
     }
@@ -129,6 +161,10 @@ export class LocalStorageBrowserIdentityStore extends MemoryBrowserIdentityStore
     const bound = await super.bindPending(hostId);
     await idbPutIdentity(bound, this.serverOrigin);
     return bound;
+  }
+
+  protected override async persist(identity: HostScopedIdentity): Promise<void> {
+    await idbPutIdentity(identity, this.serverOrigin);
   }
 
   override async listHostIds(): Promise<string[]> {
@@ -186,20 +222,20 @@ async function idbPutIdentity(identity: HostScopedIdentity, serverOrigin?: strin
   }
 }
 
+/** null = the store answered and holds no key. Throws when storage itself
+ *  fails, so a flaky IndexedDB never reads as a lost pairing. */
 async function idbGetIdentity(hostId: string, serverOrigin?: string): Promise<HostScopedIdentity | null> {
   if (!idbAvailable()) return null;
+  const db = await openIdentityDb(serverOrigin);
   try {
-    const db = await openIdentityDb(serverOrigin);
-    const value = await new Promise<HostScopedIdentity | null>((resolve, reject) => {
+    return await new Promise<HostScopedIdentity | null>((resolve, reject) => {
       const tx = db.transaction(IDB_STORE, 'readonly');
       const request = tx.objectStore(IDB_STORE).get(hostId);
       request.onsuccess = () => resolve((request.result as HostScopedIdentity | undefined) ?? null);
       request.onerror = () => reject(request.error);
     });
+  } finally {
     db.close();
-    return value;
-  } catch {
-    return null;
   }
 }
 

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AssistantMessage, UserMessage } from '../src/items.js';
-import { ImageZoomContext, MessageAttachmentOpenContext } from '../src/contexts.js';
+import { ImageZoomContext, MessageAttachmentOpenContext, MessageAttachmentPreviewContext } from '../src/contexts.js';
 import type { MsgItem } from '../src/types.js';
 
 function userMsg(overrides: Partial<MsgItem> = {}): MsgItem {
@@ -130,6 +130,26 @@ describe('UserMessage', () => {
     await user.click(screen.getByRole('button', { name: /screen\.png/ }));
     expect(open).toHaveBeenCalledWith(attachment);
     expect(document.querySelector('img[src="opaque-handle"]')).toBeNull();
+  });
+
+  it('a secure opener shows an image preview once the app supplies a source, and still opens through it', async () => {
+    const user = userEvent.setup();
+    const open = vi.fn();
+    const image = { name: 'screen.png', mime: 'image/png', url: 'opaque-handle', size: 128 };
+    const file = { name: 'notes.txt', mime: 'text/plain', url: 'opaque-file', size: 12 };
+    render(
+      <MessageAttachmentOpenContext.Provider value={open}>
+        <MessageAttachmentPreviewContext.Provider value={(attachment) => (attachment.url === 'opaque-handle' ? 'data:image/png;base64,AAAA' : null)}>
+          <UserMessage item={userMsg({ attachments: [image, file] })} />
+        </MessageAttachmentPreviewContext.Provider>
+      </MessageAttachmentOpenContext.Provider>,
+    );
+    const preview = screen.getByRole('img', { name: 'screen.png' });
+    expect(preview).toHaveAttribute('src', 'data:image/png;base64,AAAA');
+    await user.click(preview);
+    expect(open).toHaveBeenCalledWith(image);
+    // Non-images (or images without a source yet) keep the file chip.
+    expect(screen.getByRole('button', { name: /notes\.txt/ })).toHaveClass('msg-file-att');
   });
 
   it('renders context items as cards above the text', () => {

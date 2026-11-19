@@ -13,6 +13,8 @@ import {
   isRemoteErrorCode,
   addSnapshotPart,
   attachmentResultSchema,
+  MAX_ATTACHMENT_BYTES,
+  MAX_FILE_PREVIEW_BYTES,
   canonicalEventSchema,
   catalogReadResultSchema,
   commandStatusResultSchema,
@@ -37,6 +39,10 @@ import {
   transferCancelSchema,
   transferErrorSchema,
   remoteTranslationStateSchema,
+  directoryListResultSchema,
+  type RemoteDirectoryEntry,
+  type RemoteInteraction,
+  type RemoteSession,
   sha256Hex,
   type RemoteMethod,
   type RemoteStateSnapshot,
@@ -50,10 +56,12 @@ import { createPendingDraftStore, type PendingDraftStore } from '../cache/pendin
 import { DeviceAuthClient } from '../transport/auth-client.js';
 import {
   createBrowserIdentityStore,
+  MissingHostKeyError,
   type BrowserIdentityStore,
 } from '../transport/identity.js';
 import { createRemoteHttpClient, type RemoteHttpClient } from '../transport/http.js';
-import { identityPinRejected, pinDiscoveredServer } from '../transport/server-pin.js';
+import { clearServerIdentityPin, identityPinRejected, pinDiscoveredServer } from '../transport/server-pin.js';
+import { HostKeyChangedError, hostKeyFingerprint } from '../transport/host-key-pin.js';
 import {
   DeviceRelayClient,
   type DeviceRelayFactory,
@@ -109,9 +117,18 @@ import {
 import type { RemoteTranslationUiState, TranslationSendGate } from './types.js';
 import { createHostSelectionStore, type HostSelectionStore } from '../host-selection.js';
 import {
+  connectionHeld,
   draftIsEmpty,
+  emptyDirectoryList,
+  emptyDirectoryState,
   emptyDraft,
   mutationsEnabled,
+  type DirectoryList,
+  type DirectoryListState,
+  type DirectoryUiState,
+  type DraftUpload,
+  type ThumbnailState,
+  thumbnailKey,
   type CreateSessionInput,
   type PairingFailure,
   type RemoteCatalog,
@@ -120,6 +137,26 @@ import {
   type RemoteUiController,
   type RemoteUiState,
 } from './types.js';
+
+interface StateRefreshEntry {
+  hostId: string;
+  epoch: number;
+  held: Array<{ type?: string; [key: string]: unknown }>;
+  overflow: boolean;
+  done: Promise<unknown>;
+}
+
+/** Canonical frames held while one state.refresh is in flight. */
+const MAX_HELD_CANONICAL_FRAMES = 2000;
+/** directory.changed arrives for every Host event; refresh at most this often. */
+export const DIRECTORY_REFRESH_DEBOUNCE_MS = 1_500;
+export const DIRECTORY_SEARCH_DEBOUNCE_MS = 300;
+/** directory.list reads per load: the Host examines a bounded number of
+ *  conversations per read, so one page can be short but incomplete. */
+const DIRECTORY_READS_PER_LOAD = 4;
+const DIRECTORY_PAGE_SIZE = 64;
+/** Directory chats kept pinned (drafts and transcripts survive) per Host. */
+const MAX_PINNED_SESSIONS = 30;
 
 interface HostAuthSession {
   accessToken: string;
@@ -172,6 +209,10 @@ export const RECONNECT_MAX_MS = 10_000;
  *  retry quickly instead of assuming a long outage. */
 export const HOST_OFFLINE_RECONNECT_MAX_MS = 5_000;
 export const SNAPSHOT_ASSEMBLY_TIMEOUT_MS = 10_000;
+/** A verified Server identity is re-checked at most this often. Every
+ *  reconnect used to re-post /server-identity, which spent the shared
+ *  rate limit while a Host was offline. */
+export const SERVER_PIN_RECHECK_MS = 10 * 60_000;
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 5_000;
 
 export function nextPairingPollDelay(delayMs: number): number {
@@ -226,6 +267,11 @@ export function createProductionController(options: ProductionControllerOptions)
     /** The current connection negotiated wire.conversation_translation. */
     translationFeature: boolean;
   }>();
+  /** Directory load generation per list; a newer load or a Host switch
+   *  makes an older one's pages land nowhere. */
+  const directoryGenerations: Record<DirectoryList, number> = { tasks: 0, repos: 0, search: 0 };
+  let directoryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let directorySearchTimer: ReturnType<typeof setTimeout> | null = null;
   const hostSessions = new Map<string, HostAuthSession>();
   const hostDrafts = new Map<string, RemoteUiState['drafts']>();
   /** Send-gate waiters keyed by translation request_id (generation-isolated:
@@ -241,6 +287,12 @@ export function createProductionController(options: ProductionControllerOptions)
     reject: (error: unknown) => void;
   }>();
   const uploadAcks = new Map<string, TransferAckGate>();
+  /** Sessions with a plain session.send in flight. */
+  const sendingSessions = new Set<string>();
+  /** Image previews waiting for a transfer slot, and the transfers in use. */
+  const thumbnailQueue: Array<{ key: string; hostId: string; sessionId: string; reference: string; name: string }> = [];
+  const thumbnailTransfers = new Map<string, { key: string; resolve: () => void; reject: (error: unknown) => void }>();
+  let thumbnailsActive = 0;
   const downloads = new Map<string, DownloadTransfer>();
   /** In-flight `proxy.logo` reads, keyed `${proxy}:${variant}`. */
   const logoInflight = new Set<string>();
@@ -265,6 +317,9 @@ export function createProductionController(options: ProductionControllerOptions)
   let pairingGeneration = 0;
   let restoreInFlight: Promise<void> | null = null;
   let restoreAgain = false;
+  let serverPinVerifiedAt = 0;
+  let stateRefresh: StateRefreshEntry | null = null;
+  let epochCounter = 0;
   if (qrNonce) {
     const pairingUrl = new URL('/', options.baseUrl);
     pairingUrl.hash = new URLSearchParams({ nonce: qrNonce }).toString();
@@ -338,12 +393,17 @@ export function createProductionController(options: ProductionControllerOptions)
 
   function bumpEpoch(hostId: string): number {
     const runtime = hostRuntime(hostId);
-    runtime.epoch += 1;
+    // One counter for every Host and the whole page: an epoch is never
+    // reused, even after sign-out clears the runtimes.
+    epochCounter += 1;
+    runtime.epoch = epochCounter;
     return runtime.epoch;
   }
 
   function prepareHostView(hostId: string): void {
     refreshInFlight = null;
+    cancelDirectoryTimers();
+    for (const list of ['tasks', 'repos', 'search'] as const) directoryGenerations[list] += 1;
     if (state.currentHostId && state.currentHostId !== hostId) hostDrafts.set(state.currentHostId, state.drafts);
     const drafts = state.currentHostId === hostId ? state.drafts : hostDrafts.get(hostId) ?? {};
     adoptableEchoes.clear();
@@ -362,6 +422,8 @@ export function createProductionController(options: ProductionControllerOptions)
       tasks: [], sessions: [], workspaces: [], interactions: [], capabilities: {},
       catalog: null, catalogInvalidated: true, transcripts: {}, drafts,
       translations: {},
+      directory: { ...emptyDirectoryState(hostId), view: state.directory?.view ?? 'tasks' },
+      thumbnails: {}, uploads: {},
       logos: {},
       queueNotice: null, unknownCommandId, interactionErrors: {}, interactionPhases: {},
       fileDownload: { status: 'idle' } });
@@ -390,6 +452,8 @@ export function createProductionController(options: ProductionControllerOptions)
     for (const [transferId, entry] of downloads) {
       if (entry.hostId !== hostId) continue;
       downloads.delete(transferId);
+      thumbnailTransfers.get(transferId)?.reject(new RemoteProtocolError('UNKNOWN_OUTCOME', 'disconnected'));
+      thumbnailTransfers.delete(transferId);
       touched = true;
     }
     if (!touched) return;
@@ -424,9 +488,19 @@ export function createProductionController(options: ProductionControllerOptions)
     runtime.lastEventSequence = snapshot.event_sequence - 1;
     runtime.snapshotRevision = snapshot.revision;
     runtime.hostGeneration = snapshot.host_generation;
+    // The open chat leaving the Doing snapshot (Task completed while a patch
+    // was missed or held) stays open on directory Hosts; applySnapshot's
+    // hydrate below re-reads it, and access loss drops it then.
+    const openId = state.view.kind === 'chat' ? state.view.sessionId : null;
+    if (openId && directoryState().supported && directoryState().hostId === snapshot.host.id
+      && state.sessions.some(item => item.id === openId) && !snapshot.sessions.some(item => item.id === openId)) {
+      pinSession(openId);
+    }
     const next = applySnapshotToState(state, snapshot);
     update({ ...next, connectionPhase: undefined, connectionFailed: false });
+    replayHeldFrames(snapshot.host.id);
     void cache.put(snapshot.host.id, snapshot);
+    if (directoryState().supported) loadVisibleDirectory(true);
     if (next.view.kind === 'chat') hydrateSessionDetached(next.view.sessionId, 'initial', true);
     recoverTranslationGates();
     // The first snapshot may land after the catalog; retry the lazy logo
@@ -459,7 +533,7 @@ export function createProductionController(options: ProductionControllerOptions)
       || reconnectTimer
       || state.currentHostId !== hostId
       || state.connection.kind === 'browser_offline'
-      || state.connection.kind === 'device_revoked'
+      || connectionHeld(state.connection)
     ) return;
     const runtime = hostRuntime(hostId);
     runtime.reconnects += 1;
@@ -474,7 +548,7 @@ export function createProductionController(options: ProductionControllerOptions)
   }
 
   function handleBrowserOffline(): void {
-    if (closed || !state.currentHostId || state.connection.kind === 'device_revoked') return;
+    if (closed || !state.currentHostId || connectionHeld(state.connection)) return;
     cancelReconnect();
     update({ connection: { kind: 'browser_offline' } });
   }
@@ -485,7 +559,7 @@ export function createProductionController(options: ProductionControllerOptions)
       closed
       || !hostId
       || state.connection.kind === 'online'
-      || state.connection.kind === 'device_revoked'
+      || connectionHeld(state.connection)
     ) return;
     cancelReconnect();
     void connectHost(hostId).catch(() => undefined);
@@ -509,6 +583,9 @@ export function createProductionController(options: ProductionControllerOptions)
     const recovered = takePendingOnDisconnect(pending, hostId);
     const runtime = hostRuntime(hostId);
     runtime.recoverable.push(...recovered);
+    // An in-flight send becomes "outcome unknown" (the banner offers a
+    // status check); it must not keep Send blocked for that chat.
+    sendingSessions.clear();
     // A dispatching translation gate whose send command lost its ACK moves to
     // unknown: command.status owns the recovery — it is never re-sent (F1).
     const recoveredIds = new Set(recovered.map(command => command.commandId));
@@ -546,6 +623,13 @@ export function createProductionController(options: ProductionControllerOptions)
     uploadWaiters.delete(transferId);
     uploadAcks.delete(transferId);
     waiter?.reject(abortError);
+    const thumbnail = thumbnailTransfers.get(transferId);
+    if (thumbnail) {
+      thumbnailTransfers.delete(transferId);
+      downloads.delete(transferId);
+      thumbnail.reject(abortError);
+      return;
+    }
     const download = downloads.get(transferId);
     if (download) {
       downloads.delete(transferId);
@@ -590,11 +674,16 @@ export function createProductionController(options: ProductionControllerOptions)
       || method === 'translation.state'
       || method === 'translation.result_text'
       || method === 'translation.request_status'
-      || method === 'proxy.logo' || method === 'file.preview' || method === 'file.resolve' || method === 'file.tree';
+      || method === 'proxy.logo' || method === 'file.preview' || method === 'file.resolve' || method === 'file.tree'
+      || method === 'directory.list';
     const transport = boundRelay();
     if (!transport) {
       if (!readable) throw new RemoteProtocolError('HOST_OFFLINE', 'Host relay is not connected');
-      if (state.connection.kind !== 'resyncing' && state.connection.kind !== 'relay_reconnecting') {
+      // A held state (another tab, a changed Server, a lost pairing) is the
+      // user's to leave; a background read must not turn it into "offline"
+      // and so re-enable automatic reconnects.
+      if (state.connection.kind !== 'resyncing' && state.connection.kind !== 'relay_reconnecting'
+        && !connectionHeld(state.connection)) {
         update({ connection: { kind: 'host_offline', lastSeenAt: Date.now() } });
       }
       return undefined;
@@ -660,7 +749,7 @@ export function createProductionController(options: ProductionControllerOptions)
 
   async function sendReadCommand(
     method: 'catalog.read' | 'state.refresh' | 'session.subscribe' | 'session.page' | 'proxy.logo' | 'command.status'
-      | 'translation.state' | 'translation.result_text' | 'translation.request_status',
+      | 'translation.state' | 'translation.result_text' | 'translation.request_status' | 'directory.list',
     params: unknown,
     label: string,
     recoverOnDisconnect = true,
@@ -732,8 +821,297 @@ export function createProductionController(options: ProductionControllerOptions)
     }
   }
 
+  /**
+   * One state.refresh per Host connection at a time. While it is in flight,
+   * canonical events and patches are held instead of applied: the snapshot
+   * includes everything before its sequence, and holding the rest keeps a
+   * snapshot that finishes after newer events from being rejected (which
+   * used to close the Relay) or from rolling those events back. Held frames
+   * at or past the snapshot's sequence are replayed once it lands.
+   */
+  function requestStateAsync(): Promise<unknown> {
+    const hostId = state.currentHostId;
+    if (!hostId) return Promise.resolve(undefined);
+    const epoch = hostRuntime(hostId).epoch;
+    if (stateRefresh && stateRefresh.hostId === hostId && stateRefresh.epoch === epoch) return stateRefresh.done;
+    const entry: StateRefreshEntry = { hostId, epoch, held: [], overflow: false, done: Promise.resolve(undefined) };
+    entry.done = sendReadCommand('state.refresh', {}, 'state.refresh')
+      .catch((error) => {
+        // Never drop what arrived meanwhile: replay it over the current
+        // state. Any gap it shows asks for a snapshot again.
+        if (stateRefresh === entry) replayHeldFrames(hostId);
+        throw error;
+      })
+      .finally(() => { if (stateRefresh === entry) stateRefresh = null; });
+    stateRefresh = entry;
+    return entry.done;
+  }
+
   function requestState(): void {
-    void sendReadCommand('state.refresh', {}, 'state.refresh').catch(() => undefined);
+    void requestStateAsync().catch(() => undefined);
+  }
+
+  // ── Attachment uploads and image previews ───────────────────────────────
+
+  function setUploads(sessionId: string, uploads: DraftUpload[]): void {
+    const next = { ...(state.uploads ?? {}) };
+    if (uploads.length) next[sessionId] = uploads; else delete next[sessionId];
+    update({ uploads: next });
+  }
+
+  function setThumbnail(key: string, value: ThumbnailState): void {
+    update({ thumbnails: { ...(state.thumbnails ?? {}), [key]: value } });
+  }
+
+  /** Two previews at a time: each is a full E2E transfer of up to 1 MiB. */
+  function pumpThumbnails(): void {
+    while (thumbnailsActive < 2 && thumbnailQueue.length) {
+      const job = thumbnailQueue.shift()!;
+      if (job.hostId !== state.currentHostId) {
+        // Another Host is showing; let the chat ask again when it returns.
+        continue;
+      }
+      thumbnailsActive += 1;
+      void loadThumbnail(job)
+        .catch(() => {
+          if (state.currentHostId === job.hostId) setThumbnail(job.key, { status: 'error' });
+        })
+        .finally(() => {
+          thumbnailsActive -= 1;
+          pumpThumbnails();
+        });
+    }
+  }
+
+  async function loadThumbnail(job: { key: string; hostId: string; sessionId: string; reference: string; name: string }): Promise<void> {
+    const resolved = parseClosed(remoteFileRefSchema, await withTimeout(sendCommand('file.resolve', {
+      session_id: job.sessionId, reference: job.reference,
+    }, 'file.resolve', { recoverOnDisconnect: false }), readTimeoutMs, 'file reference timed out'));
+    if (!resolved.previewable || resolved.size > MAX_FILE_PREVIEW_BYTES || !resolved.mime.startsWith('image/')) {
+      setThumbnail(job.key, { status: 'skipped' });
+      return;
+    }
+    const preview = parseClosed(filePreviewResultSchema, await withTimeout(sendCommand('file.preview', {
+      handle_id: resolved.id,
+    }, 'file.preview', { recoverOnDisconnect: false }), readTimeoutMs, 'file preview timed out'));
+    const transport = transferRelay();
+    if (!transport || transport.hostId !== job.hostId) throw new RemoteProtocolError('HOST_OFFLINE', 'Host relay is not connected');
+    const transferId = preview.transfer_id;
+    const done = new Promise<void>((resolve, reject) => {
+      thumbnailTransfers.set(transferId, { key: job.key, resolve, reject });
+    });
+    downloads.set(transferId, startDownload({
+      hostId: transport.hostId,
+      purpose: 'preview',
+      handle: { id: resolved.id, sessionId: job.sessionId, label: job.name },
+      name: preview.file.name,
+      mime: preview.file.mime,
+      size: preview.file.size,
+    }));
+    try {
+      await transport.relay.sendControl({ type: 'download.request', transfer_id: transferId, kind: 'file', handle_id: resolved.id });
+    } catch (error) {
+      downloads.delete(transferId);
+      thumbnailTransfers.delete(transferId);
+      throw error;
+    }
+    await withTimeout(done, readTimeoutMs, 'image preview timed out').finally(() => {
+      if (thumbnailTransfers.has(transferId)) {
+        thumbnailTransfers.delete(transferId);
+        downloads.delete(transferId);
+      }
+    });
+  }
+
+  // ── Conversation directory (wire.session_directory_v1) ──────────────────
+
+  function directoryState(): DirectoryUiState {
+    return state.directory ?? emptyDirectoryState();
+  }
+
+  function patchDirectory(patch: Partial<DirectoryUiState>): void {
+    update({ directory: { ...directoryState(), ...patch } });
+  }
+
+  function patchDirectoryList(list: DirectoryList, patch: Partial<DirectoryListState>): void {
+    const directory = directoryState();
+    patchDirectory({ lists: { ...directory.lists, [list]: { ...directory.lists[list], ...patch } } });
+  }
+
+  function cancelDirectoryTimers(): void {
+    if (directoryRefreshTimer) clearTimeout(directoryRefreshTimer);
+    if (directorySearchTimer) clearTimeout(directorySearchTimer);
+    directoryRefreshTimer = null;
+    directorySearchTimer = null;
+  }
+
+  function directoryUsable(): boolean {
+    return directoryState().supported && Boolean(boundRelay());
+  }
+
+  /**
+   * Load one directory list. `fresh` replaces the entries once the new pages
+   * arrive (the rail keeps the old rows meanwhile); otherwise it continues
+   * from the saved cursor ("Load more"). Reads are bounded per load.
+   */
+  async function loadDirectoryList(list: DirectoryList, fresh: boolean): Promise<void> {
+    if (!directoryUsable()) return;
+    const hostId = state.currentHostId;
+    const current = directoryState().lists[list];
+    const query = list === 'search' ? directoryState().query.trim() : undefined;
+    if (list === 'search' && !query) return;
+    if (!fresh && (current.status === 'complete' || !current.cursor)) return;
+    const generation = ++directoryGenerations[list];
+    const live = () => !closed && state.currentHostId === hostId && directoryGenerations[list] === generation;
+    let entries = fresh ? [] : [...current.entries];
+    let cursor: string | null = fresh ? null : current.cursor;
+    patchDirectoryList(list, { status: 'loading', error: undefined, ...(fresh && list === 'search' ? { query } : {}) });
+    try {
+      for (let read = 0, restarted = false; read < DIRECTORY_READS_PER_LOAD; read += 1) {
+        const data = await sendReadCommand('directory.list', {
+          view: list,
+          ...(query ? { query } : {}),
+          limit: DIRECTORY_PAGE_SIZE,
+          ...(cursor ? { cursor } : {}),
+        }, 'directory.list', false);
+        if (!live()) return;
+        const page = parseClosed(directoryListResultSchema, data);
+        if (page.state === 'cursor_invalid') {
+          // The directory changed under the cursor: start this list over once.
+          if (restarted) throw new RemoteProtocolError('SNAPSHOT_REQUIRED', 'directory kept changing');
+          restarted = true;
+          entries = [];
+          cursor = null;
+          continue;
+        }
+        entries = mergeDirectoryEntries(entries, page.entries);
+        cursor = page.next_cursor;
+        if (page.state === 'complete') break;
+      }
+      if (!live()) return;
+      patchDirectoryList(list, { entries, cursor, status: cursor ? 'incomplete' : 'complete', error: undefined,
+        ...(list === 'search' ? { query } : {}) });
+    } catch (error) {
+      if (!live()) return;
+      patchDirectoryList(list, { status: 'error', error: errorCode(error) });
+    }
+  }
+
+  function loadVisibleDirectory(fresh = true): void {
+    if (!directoryUsable()) return;
+    const directory = directoryState();
+    const list: DirectoryList = directory.query.trim() ? 'search' : directory.view;
+    void loadDirectoryList(list, fresh);
+  }
+
+  /** directory.changed: the Host sends one for every event, so coalesce. */
+  function scheduleDirectoryRefresh(): void {
+    if (directoryRefreshTimer || !directoryState().supported) return;
+    directoryRefreshTimer = setTimeout(() => {
+      directoryRefreshTimer = null;
+      if (closed || !directoryUsable()) return;
+      loadVisibleDirectory(true);
+      // A pinned chat gets no session.updated events; re-read it instead.
+      if (state.view.kind === 'chat' && directoryState().pinned.includes(state.view.sessionId)) {
+        subscribeSession(state.view.sessionId);
+      }
+    }, DIRECTORY_REFRESH_DEBOUNCE_MS);
+  }
+
+  function pinSession(sessionId: string): void {
+    const directory = directoryState();
+    if (directory.pinned[0] === sessionId) return;
+    const pinned = [sessionId, ...directory.pinned.filter(id => id !== sessionId)].slice(0, MAX_PINNED_SESSIONS);
+    patchDirectory({ pinned });
+  }
+
+  /** A directory chat this device may no longer open (archived, hidden,
+   *  access changed): forget it and leave the view if it was open. */
+  function dropDirectorySession(sessionId: string): void {
+    const directory = directoryState();
+    const lists = Object.fromEntries(Object.entries(directory.lists).map(([name, list]) => [
+      name, { ...list, entries: list.entries.filter(entry => entry.id !== sessionId) },
+    ])) as DirectoryUiState['lists'];
+    const wasPinned = directory.pinned.includes(sessionId);
+    const viewing = state.view.kind === 'chat' && state.view.sessionId === sessionId;
+    update({
+      directory: { ...directory, lists, pinned: directory.pinned.filter(id => id !== sessionId),
+        opening: directory.opening === sessionId ? null : directory.opening },
+      ...(wasPinned ? {
+        sessions: state.sessions.filter(session => session.id !== sessionId),
+        interactions: state.interactions.filter(interaction => interaction.session_id !== sessionId),
+      } : {}),
+      ...(viewing ? { view: { kind: 'empty' as const } } : {}),
+    });
+  }
+
+  /** Answer of session.subscribe for a chat outside the snapshot: it is the
+   *  only source of that chat's state and pending interactions. */
+  function adoptSubscribedSession(session: RemoteSession, interactions: RemoteInteraction[] | undefined): boolean {
+    const pinned = directoryState().pinned.includes(session.id);
+    const inSnapshot = state.sessions.some(item => item.id === session.id) && !pinned;
+    if (inSnapshot) return false;
+    // A late answer for a chat the user already left is not adopted: only
+    // the chat on screen (or one already pinned, being re-read) is.
+    const onScreen = state.view.kind === 'chat' && state.view.sessionId === session.id;
+    if (!onScreen && !pinned) return false;
+    pinSession(session.id);
+    const others = state.interactions.filter(interaction => interaction.session_id !== session.id);
+    update({
+      sessions: [...state.sessions.filter(item => item.id !== session.id), session],
+      ...(interactions ? { interactions: [...others, ...interactions] } : {}),
+      directory: { ...directoryState(), opening: directoryState().opening === session.id ? null : directoryState().opening },
+    });
+    return onScreen;
+  }
+
+  /** History for a chat that is already subscribed. Never subscribes again:
+   *  the Host keeps one subscription per device, and every subscribe moves
+   *  it (and drops other chats' file references). */
+  function loadHistory(sessionId: string): void {
+    const loading = beginTranscriptLoad(state, sessionId, 'initial');
+    update({ transcripts: loading.transcripts });
+    void hydrateSession(sessionId, 'initial').catch(() => {
+      update({ transcripts: failTranscriptLoad(state, sessionId, 'initial').transcripts });
+    });
+  }
+
+  /** True when this canonical frame was held for the in-flight refresh. */
+  function holdForRefresh(
+    message: { type?: string; [key: string]: unknown },
+    boundHostId: string,
+    boundEpoch: number,
+  ): boolean {
+    const entry = stateRefresh;
+    if (!entry || entry.hostId !== boundHostId || entry.epoch !== boundEpoch) return false;
+    const eventKind = (message.event as { kind?: unknown } | undefined)?.kind;
+    if (!occupiesCanonicalSequence(String(message.type), typeof eventKind === 'string' ? eventKind : undefined)) return false;
+    if (entry.held.length >= MAX_HELD_CANONICAL_FRAMES) {
+      // Too much to hold: drop the rest. Replay then meets a gap and asks
+      // for one more snapshot instead of growing without bound.
+      entry.overflow = true;
+      return true;
+    }
+    entry.held.push(message);
+    return true;
+  }
+
+  /** Synchronous on purpose: the event and patch branches of onControl do
+   *  not await, so the held frames apply in order before the Relay hands
+   *  over the next live frame. */
+  function replayHeldFrames(hostId: string): void {
+    const entry = stateRefresh;
+    if (!entry || entry.hostId !== hostId) return;
+    stateRefresh = null;
+    const runtime = hostRuntime(hostId);
+    for (const message of entry.held) {
+      const sequence = Number(message.event_sequence);
+      // Already part of the snapshot.
+      if (Number.isFinite(sequence) && sequence <= runtime.lastEventSequence) continue;
+      if (runtime.epoch !== entry.epoch || state.currentHostId !== hostId) return;
+      void onControl(message, hostId, entry.epoch).catch(() => undefined);
+    }
+    if (entry.overflow) requestState();
   }
 
   function refreshStateFromUi(): void {
@@ -752,7 +1130,7 @@ export function createProductionController(options: ProductionControllerOptions)
         if (!boundRelay()) await connectHost(hostId);
       }
       if (closed || state.currentHostId !== hostId) return;
-      await sendReadCommand('state.refresh', {}, 'state.refresh');
+      await requestStateAsync();
     })().catch((error) => {
       if (
         closed
@@ -799,8 +1177,11 @@ export function createProductionController(options: ProductionControllerOptions)
       .then((data) => {
         if (!data || closed || state.currentHostId !== hostId) return;
         const result = parseClosed(REMOTE_METHOD_RESULTS['session.subscribe'], data) as {
+          session: RemoteSession;
+          interactions?: RemoteInteraction[];
           translation?: import('@gian/remote-protocol').RemoteTranslationState;
         };
+        const adoptedOnScreen = directoryState().supported && adoptSubscribedSession(result.session, result.interactions);
         update({
           translations: result.translation
             // A live subscribe answer on the current connection is the
@@ -809,8 +1190,20 @@ export function createProductionController(options: ProductionControllerOptions)
             ? applyTranslationState(state.translations, sessionId, result.translation, { authoritativeBaseline: true })
             : markTranslationUnsupported(state.translations, sessionId),
         });
+        if (adoptedOnScreen) {
+          // A directory chat opened outside the snapshot: its history waits
+          // for the session (and its agent) to be known.
+          const transcript = state.transcripts[sessionId];
+          if (!transcript || (!transcript.hydrated && !transcript.historyError)) loadHistory(sessionId);
+          restoreGatedDraft(sessionId);
+          reconcileTranslationSession(sessionId);
+        }
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        if (closed || state.currentHostId !== hostId) return;
+        if (directoryState().supported && errorCode(error) === 'REMOTE_CAPABILITY_DENIED') dropDirectorySession(sessionId);
+        else if (directoryState().opening === sessionId) patchDirectory({ opening: null });
+      });
   }
 
   /** Per-session reconciliation on (re)subscription: pending manual reads
@@ -1523,6 +1916,11 @@ export function createProductionController(options: ProductionControllerOptions)
       requestState();
       return;
     }
+    if (message.type === 'directory.changed') {
+      if (state.currentHostId !== boundHostId) return;
+      scheduleDirectoryRefresh();
+      return;
+    }
     if (message.type === 'resume.ok') {
       if (state.currentHostId !== boundHostId) return;
       const runtime = hostRuntime(boundHostId);
@@ -1596,6 +1994,7 @@ export function createProductionController(options: ProductionControllerOptions)
     }
     if (message.type === 'event') {
       if (state.currentHostId !== boundHostId) return;
+      if (holdForRefresh(message, boundHostId, boundEpoch)) return;
       const event = parseClosed(canonicalEventSchema, message);
       if (!noteSequence(boundHostId, event.type, event.event_sequence, event.event.kind)) return;
       if (event.event.kind === 'translation.updated') {
@@ -1611,6 +2010,7 @@ export function createProductionController(options: ProductionControllerOptions)
     }
     if (message.type === 'state.patch') {
       if (state.currentHostId !== boundHostId) return;
+      if (holdForRefresh(message, boundHostId, boundEpoch)) return;
       const patch = parseClosed(statePatchSchema, message);
       const revision = hostRuntime(boundHostId).snapshotRevision;
       if (revision && patch.base_revision !== revision) {
@@ -1619,7 +2019,15 @@ export function createProductionController(options: ProductionControllerOptions)
       }
       if (!noteSequence(boundHostId, patch.type, patch.event_sequence)) return;
       hostRuntime(boundHostId).snapshotRevision = patch.revision;
+      // A chat leaving the Doing snapshot (its Task completed, or it moved
+      // out of one) stays open on directory Hosts; re-read it from the Host.
+      const openId = state.view.kind === 'chat' ? state.view.sessionId : null;
+      const leaving = openId && directoryState().supported && patch.patch.sessions?.remove_ids.includes(openId)
+        ? openId : null;
+      if (leaving) pinSession(leaving);
       update(applyStatePatch(state, patch));
+      if (leaving) subscribeSession(leaving);
+      if (patch.patch.sessions || patch.patch.tasks) scheduleDirectoryRefresh();
       return;
     }
     if (message.type === 'transfer.ack') {
@@ -1714,6 +2122,14 @@ export function createProductionController(options: ProductionControllerOptions)
         }
         downloads.delete(transferId);
         const bytes = await completeDownload(current, message);
+        const thumbnail = thumbnailTransfers.get(transferId);
+        if (thumbnail) {
+          thumbnailTransfers.delete(transferId);
+          const viewer = viewerFromPreviewBytes(current.handle!, bytes, current.mime);
+          setThumbnail(thumbnail.key, viewer.status === 'image' ? { status: 'ready', dataUrl: viewer.dataUrl } : { status: 'skipped' });
+          thumbnail.resolve();
+          return;
+        }
         if (current.purpose === 'preview') {
           if (previewMayComplete(current, state.fileViewer)) {
             update({ fileViewer: viewerFromPreviewBytes(current.handle!, bytes, current.mime) });
@@ -1724,6 +2140,12 @@ export function createProductionController(options: ProductionControllerOptions)
         update({ fileDownload: { status: 'idle' } });
       } catch (error) {
         if (transferId) downloads.delete(transferId);
+        const thumbnail = transferId ? thumbnailTransfers.get(transferId) : undefined;
+        if (thumbnail) {
+          thumbnailTransfers.delete(transferId);
+          thumbnail.reject(error);
+          return;
+        }
         failDownload(current, error);
       }
       return;
@@ -1789,10 +2211,21 @@ export function createProductionController(options: ProductionControllerOptions)
     }
   }
 
-  function applyCommandData(method: RemoteMethod | undefined, data: unknown, hostId?: string): void {
+  function applyCommandData(
+    method: RemoteMethod | undefined,
+    data: unknown,
+    hostId?: string,
+    applyOptions: { recovered?: boolean } = {},
+  ): void {
     if (!method) return;
     if (method === 'state.refresh') {
-      applySnapshot(parseClosed(remoteStateSnapshotSchema, data));
+      const snapshot = parseClosed(remoteStateSnapshotSchema, data);
+      // The chunked path checks this binding; a whole snapshot must too, or
+      // one paired Host could present its data as another's.
+      if (hostId && snapshot.host.id !== hostId) {
+        throw new RemoteProtocolError('INVALID_FRAME', 'snapshot belongs to a different Host');
+      }
+      applySnapshot(snapshot);
       return;
     }
     if (method === 'catalog.read') {
@@ -1808,6 +2241,21 @@ export function createProductionController(options: ProductionControllerOptions)
     }
     if (method === 'session.create' || method === 'session.update' || method === 'session.send') {
       const session = (data as { session?: unknown; id?: string } | undefined)?.session ?? data;
+      if (applyOptions.recovered) {
+        // command.status returns the result stored when the command first
+        // ran. The resumed event stream already carries everything since,
+        // so this old projection must not roll the session back. A recovered
+        // create still opens its chat if the user is waiting on New chat.
+        if (method === 'session.create' && state.view.kind === 'new-chat'
+          && session && typeof session === 'object' && typeof (session as { id?: unknown }).id === 'string') {
+          const sessionId = (session as { id: string }).id;
+          if (state.sessions.some(item => item.id === sessionId)) {
+            update({ view: { kind: 'chat', sessionId }, mobilePage: 'chat', fileViewer: null });
+            hydrateSessionDetached(sessionId, 'initial', true);
+          }
+        }
+        return;
+      }
       if (session && typeof session === 'object' && 'id' in (session as object)) {
         const next = applyCanonicalEvent(state, {
           type: 'event',
@@ -1819,14 +2267,28 @@ export function createProductionController(options: ProductionControllerOptions)
             : -1) + 1,
           event: { kind: 'session.updated', session: session as never },
         });
+        const created = session as RemoteSession;
+        // A chat created outside an open Task is never in the snapshot.
+        if (method === 'session.create' && directoryState().supported
+          && !(created.task_id && state.tasks.some(task => task.id === created.task_id))) {
+          pinSession(created.id);
+        }
         update(method === 'session.create'
           ? {
               ...next,
+              directory: directoryState(),
               view: { kind: 'chat', sessionId: String((session as { id: unknown }).id) },
               mobilePage: 'chat',
               fileViewer: null,
             }
           : next);
+        if (method === 'session.create') {
+          // Subscribe right away: the Host streams a chat's transcript only
+          // to the connection subscribed to it, and nothing else would load
+          // the new chat's (empty) history.
+          hydrateSessionDetached(created.id, 'initial', true);
+          scheduleDirectoryRefresh();
+        }
       }
       return;
     }
@@ -1906,7 +2368,7 @@ export function createProductionController(options: ProductionControllerOptions)
           await sendCommand('command.status', { command_id: command.commandId }, 'command.status'),
         );
         if (status.state === 'succeeded') {
-          applyCommandData(command.method, status.result, hostId);
+          applyCommandData(command.method, status.result, hostId, { recovered: true });
           finishMutation(command.commandId, 'succeeded');
           command.resolve?.(status.result);
           continue;
@@ -1974,6 +2436,7 @@ export function createProductionController(options: ProductionControllerOptions)
       challengeId: challenge.challenge_id,
       signature: await signBytes(hostIdentity.privateKey, new TextEncoder().encode(challenge.challenge_id)),
     });
+    await identity.checkHostKey(hostId, hostKeyFingerprint(login.host_public_key));
     const session: HostAuthSession = {
       accessToken: login.access_token,
       accessExpiresAt: login.expires_at,
@@ -2051,12 +2514,19 @@ export function createProductionController(options: ProductionControllerOptions)
       if (devicePairingWasLost(error)) {
         await clearHostPairingMaterial(hostId);
         if (!closed && epoch === hostRuntime(hostId).epoch && state.currentHostId === hostId) {
-          update({ connection: { kind: 'device_revoked' } });
+          update({ connection: { kind: 'device_revoked', reason: pairingLossReason(error) } });
         }
       }
       if (relayHostId === hostId) retireHostSession(hostId, 'disconnected');
       else markDisconnectedPending(hostId);
-      if (!devicePairingWasLost(error) && !identityPinRejected(error)) scheduleReconnect(hostId);
+      if (identityPinRejected(error)) {
+        // A different Server identity is a decision for the user, not a
+        // transient failure: stop here instead of "retrying automatically".
+        serverPinVerifiedAt = 0;
+        if (state.currentHostId === hostId) update({ connection: { kind: 'server_changed' } });
+      } else if (!devicePairingWasLost(error)) {
+        scheduleReconnect(hostId);
+      }
       throw error;
     } finally {
       if (connectInFlight === run) connectInFlight = null;
@@ -2068,7 +2538,10 @@ export function createProductionController(options: ProductionControllerOptions)
     cancelReconnect();
     update({ connection: { kind: 'resyncing', synced: 0, total: 1 }, currentHostId: hostId,
       connectionPhase: 'auth', connectionFailed: false });
-    await pinDiscoveredServer({ origin: options.publicOrigin, storageScope: options.storageScope, fetchFn: options.fetchFn });
+    if (Date.now() - serverPinVerifiedAt >= SERVER_PIN_RECHECK_MS) {
+      await pinDiscoveredServer({ origin: options.publicOrigin, storageScope: options.storageScope, fetchFn: options.fetchFn });
+      serverPinVerifiedAt = Date.now();
+    }
     if (closed || epoch !== hostRuntime(hostId).epoch) return;
     const hostIdentity = await identity.hostIdentity(hostId);
     let session = await authenticateHost(hostId);
@@ -2101,6 +2574,9 @@ export function createProductionController(options: ProductionControllerOptions)
       hostId,
       deviceId: session.deviceId,
       cryptoConnectionId: session.cryptoConnectionId,
+      // The directory lists every conversation this device may open (not
+      // only the Doing snapshot), adds search and chats outside a Task.
+      hello: { sessionDirectoryV1: true },
       handlers: {
         onControl(message: { type?: string; [key: string]: unknown }) {
           return onControl(message, boundHostId, boundEpoch);
@@ -2111,6 +2587,18 @@ export function createProductionController(options: ProductionControllerOptions)
         onClose(reason: string) {
           markDisconnectedPending(hostId);
           if (closed) return;
+          // This tab clears its binding before closing a relay itself, so a
+          // 'replaced' close on the still-bound relay came from the Server:
+          // another tab or window of this browser connected as this device.
+          // Reconnecting would take the connection back and start a tug of
+          // war, so this tab waits until the user picks it again.
+          if (reason === 'replaced' && relay === nextRelay && state.currentHostId === hostId) {
+            clearRelayBinding();
+            cancelReconnect();
+            bumpEpoch(hostId);
+            update({ connection: { kind: 'taken_over' } });
+            return;
+          }
           if (
             reason === 'replaced'
             || reason === 'closed'
@@ -2123,7 +2611,7 @@ export function createProductionController(options: ProductionControllerOptions)
           if (state.currentHostId !== hostId) return;
           if (state.connection.kind === 'device_revoked' || reason === 'device_revoked') {
             if (reason === 'device_revoked') void clearHostPairingMaterial(hostId);
-            update({ connection: { kind: 'device_revoked' } });
+            if (state.connection.kind !== 'device_revoked') update({ connection: { kind: 'device_revoked', reason: 'revoked' } });
             return;
           }
           scheduleReconnect(hostId);
@@ -2143,6 +2631,19 @@ export function createProductionController(options: ProductionControllerOptions)
       }
       const runtime = hostRuntime(hostId);
       runtime.translationFeature = nextRelay.negotiatedCapabilities?.includes('wire.conversation_translation') === true;
+      const directorySupported = nextRelay.negotiatedCapabilities?.includes('wire.session_directory_v1') === true;
+      if (directoryState().hostId !== hostId) {
+        // A Host reached without prepareHostView (a just-paired one): start
+        // from an empty directory so nothing of the previous Host remains.
+        for (const list of ['tasks', 'repos', 'search'] as const) directoryGenerations[list] += 1;
+        update({ directory: { ...emptyDirectoryState(hostId), supported: directorySupported, view: directoryState().view } });
+      } else if (directoryState().supported !== directorySupported) {
+        patchDirectory({ supported: directorySupported });
+      }
+      // Previews that failed on the previous connection may load now.
+      if (state.thumbnails && Object.values(state.thumbnails).some(item => item.status === 'error')) {
+        update({ thumbnails: Object.fromEntries(Object.entries(state.thumbnails).filter(([, item]) => item.status !== 'error')) });
+      }
       update({ connectionPhase: 'sync' });
       if (runtime.lastEventSequence >= 0 && runtime.snapshotRevision && runtime.hostGeneration) {
         await nextRelay.sendControl({
@@ -2320,40 +2821,50 @@ export function createProductionController(options: ProductionControllerOptions)
     await connectHost(host.id).catch(() => undefined);
   }
 
-  async function forgetHost(hostId: string, options: { revoke: boolean }): Promise<void> {
-    if (options.revoke) {
-      try {
-        const creds = await authenticateHost(hostId);
-        const hostIdentity = await identity.hostIdentity(hostId);
-        const signedAt = Date.now();
-        await auth.selfRevoke({
+  /** Revoke this browser's pairing with one Host on the Server. */
+  async function selfRevokeHost(hostId: string): Promise<void> {
+    const creds = await authenticateHost(hostId);
+    const hostIdentity = await identity.hostIdentity(hostId);
+    const signedAt = Date.now();
+    await auth.selfRevoke({
+      hostId,
+      signedAt,
+      accessToken: creds.accessToken,
+      signature: await signBytes(
+        hostIdentity.privateKey,
+        new TextEncoder().encode(selfRevokePayload({
           hostId,
+          deviceId: creds.deviceId,
           signedAt,
-          accessToken: creds.accessToken,
-          signature: await signBytes(
-            hostIdentity.privateKey,
-            new TextEncoder().encode(selfRevokePayload({
-              hostId,
-              deviceId: creds.deviceId,
-              signedAt,
-            })),
-          ),
-        });
+        })),
+      ),
+    });
+  }
+
+  async function forgetHost(hostId: string, forgetOptions: { revoke: boolean }): Promise<void> {
+    if (forgetOptions.revoke) {
+      try {
+        await selfRevokeHost(hostId);
       } catch (error) {
-        update({
-          mutations: {
-            ...state.mutations,
-            [hostId]: {
-              commandId: hostId,
-              label: 'host.revoke',
-              phase: 'failed',
-              errorCode: errorCode(error),
-              errorMessage: error instanceof Error ? error.message : 'self-revoke failed',
-              startedAt: Date.now(),
+        // Without its key, or with the pairing already gone on the Server,
+        // there is nothing left to revoke from here: remove the Host locally
+        // instead of leaving it stuck in the list.
+        if (!devicePairingWasLost(error)) {
+          update({
+            mutations: {
+              ...state.mutations,
+              [hostId]: {
+                commandId: hostId,
+                label: 'host.revoke',
+                phase: 'failed',
+                errorCode: errorCode(error),
+                errorMessage: error instanceof Error ? error.message : 'self-revoke failed',
+                startedAt: Date.now(),
+              },
             },
-          },
-        });
-        return;
+          });
+          return;
+        }
       }
     }
     if (state.currentHostId === hostId) {
@@ -2470,9 +2981,16 @@ export function createProductionController(options: ProductionControllerOptions)
       void connectHost(hostId).catch(() => undefined);
     },
     selectSession(sessionId) {
-      if (!state.sessions.some((session) => session.id === sessionId)) return;
-      update({ view: { kind: 'chat', sessionId }, mobilePage: 'chat', fileViewer: null });
-      hydrateSessionDetached(sessionId);
+      const known = state.sessions.some((session) => session.id === sessionId);
+      const listed = directoryState().supported && Object.values(directoryState().lists)
+        .some(list => list.entries.some(entry => entry.id === sessionId));
+      if (!known && !listed) return;
+      update({ view: { kind: 'chat', sessionId }, mobilePage: 'chat', fileViewer: null,
+        ...(known ? {} : { directory: { ...directoryState(), opening: sessionId } }) });
+      // A directory chat outside the snapshot arrives with session.subscribe;
+      // its history loads once the session (and its agent) is known.
+      if (known) hydrateSessionDetached(sessionId);
+      else subscribeSession(sessionId);
     },
     openNewChat(presetTaskId) {
       update({ view: { kind: 'new-chat', presetTaskId }, mobilePage: 'new-chat' });
@@ -2495,12 +3013,41 @@ export function createProductionController(options: ProductionControllerOptions)
     refreshCatalog() {
       requestCatalog();
     },
+    setDirectoryView(view) {
+      if (directoryState().view === view && !directoryState().query) return;
+      patchDirectory({ view, query: '' });
+      if (directoryState().lists[view].status === 'idle' || directoryState().lists[view].status === 'error') {
+        void loadDirectoryList(view, true);
+      }
+    },
+    setDirectoryQuery(query) {
+      patchDirectory({ query });
+      if (directorySearchTimer) clearTimeout(directorySearchTimer);
+      directorySearchTimer = null;
+      if (!query.trim()) {
+        ++directoryGenerations.search;
+        patchDirectoryList('search', emptyDirectoryList());
+        return;
+      }
+      patchDirectoryList('search', { status: 'loading' });
+      directorySearchTimer = setTimeout(() => {
+        directorySearchTimer = null;
+        void loadDirectoryList('search', true);
+      }, DIRECTORY_SEARCH_DEBOUNCE_MS);
+    },
+    loadMoreDirectory(list) {
+      void loadDirectoryList(list, false);
+    },
+    refreshDirectory() {
+      loadVisibleDirectory(true);
+    },
     createSession(input: CreateSessionInput) {
+      if (!input.taskId && !directoryState().supported) return;
       dispatchCommand('session.create', {
         catalog_revision: state.catalogRevision,
         workspace_id: input.workspaceId,
         agent_id: input.agentId,
-        task_id: input.taskId,
+        ...(input.taskId ? { task_id: input.taskId } : {}),
         name: input.name,
         model: input.model,
         thinking: input.thinking,
@@ -2527,8 +3074,20 @@ export function createProductionController(options: ProductionControllerOptions)
       });
     },
     uploadDraftAttachment(sessionId, file) {
+      const uploadId = generateCanonicalId();
+      const entry: DraftUpload = { id: uploadId, name: file.name, size: file.size, status: 'uploading' };
+      const failUpload = (code: string) => setUploads(sessionId, (state.uploads?.[sessionId] ?? [])
+        .map(item => (item.id === uploadId ? { ...item, status: 'failed' as const, error: code } : item)));
+      setUploads(sessionId, [...(state.uploads?.[sessionId] ?? []), entry]);
+      if (file.size > MAX_ATTACHMENT_BYTES || file.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+        failUpload('FILE_TOO_LARGE');
+        return;
+      }
       const started = transferRelay();
-      if (!started) return;
+      if (!started) {
+        failUpload('HOST_OFFLINE');
+        return;
+      }
       const sendOnBound = (
         send: (message: Record<string, unknown>) => Promise<void>,
       ) => (message: Record<string, unknown>) => {
@@ -2568,8 +3127,12 @@ export function createProductionController(options: ProductionControllerOptions)
           };
         },
       }).then((attachment) => {
-        actions.addDraftAttachment(sessionId, attachment);
+        const cancelled = !(state.uploads?.[sessionId] ?? []).some(item => item.id === uploadId);
+        setUploads(sessionId, (state.uploads?.[sessionId] ?? []).filter(item => item.id !== uploadId));
+        if (!cancelled) actions.addDraftAttachment(sessionId, attachment);
       }).catch((error) => {
+        // A cancelled chip stays gone; the failure is still recorded.
+        if ((state.uploads?.[sessionId] ?? []).some(item => item.id === uploadId)) failUpload(errorCode(error));
         update({
           queueNotice: null,
           mutations: {
@@ -2585,6 +3148,26 @@ export function createProductionController(options: ProductionControllerOptions)
           },
         });
       });
+    },
+    dismissUpload(sessionId, uploadId) {
+      // Also cancels one still uploading: it then never joins the draft, and
+      // Send no longer waits for it.
+      setUploads(sessionId, (state.uploads?.[sessionId] ?? []).filter(item => item.id !== uploadId));
+    },
+    requestThumbnail(sessionId, attachment) {
+      const hostId = state.currentHostId;
+      if (!hostId) return;
+      const key = thumbnailKey(sessionId, attachment.url);
+      // A failed preview stays failed until the next connection clears it,
+      // so a broken file is never fetched in a loop.
+      if (state.thumbnails?.[key]) return;
+      if (!attachment.mime?.startsWith('image/') || (attachment.size ?? 0) > MAX_FILE_PREVIEW_BYTES) {
+        setThumbnail(key, { status: 'skipped' });
+        return;
+      }
+      setThumbnail(key, { status: 'loading' });
+      thumbnailQueue.push({ key, hostId, sessionId, reference: attachment.url, name: attachment.name });
+      pumpThumbnails();
     },
     addDraftContextItem(sessionId, item) {
       const draft = state.drafts[sessionId] ?? emptyDraft();
@@ -2626,6 +3209,8 @@ export function createProductionController(options: ProductionControllerOptions)
     sendDraft(sessionId) {
       const draft = state.drafts[sessionId] ?? emptyDraft();
       if (draftIsEmpty(draft)) return;
+      // Never send while a file the user attached is still on its way.
+      if (state.uploads?.[sessionId]?.some(upload => upload.status === 'uploading')) return;
       const session = state.sessions.find((item) => item.id === sessionId);
       const ui = state.translations[sessionId];
       // Automatic translated sending gates ONLY a text-bearing send on an
@@ -2641,6 +3226,11 @@ export function createProductionController(options: ProductionControllerOptions)
         sendDraftGated(sessionId, draft);
         return;
       }
+      // One send per session at a time: the draft stays in the composer
+      // until the Host confirms it, so a second Enter in that window would
+      // otherwise send the same message again under a new command id.
+      if (sendingSessions.has(sessionId)) return;
+      sendingSessions.add(sessionId);
       void sendCommand('session.send', sessionSendParams(sessionId, draft, session), 'session.send')
         .then(() => {
           if (state.drafts[sessionId] !== draft) return;
@@ -2649,7 +3239,8 @@ export function createProductionController(options: ProductionControllerOptions)
           // draft restores now (confirmed, never overwriting) — R2-3/F5.
           restoreGatedDraft(sessionId);
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => sendingSessions.delete(sessionId));
     },
     setAutoTranslation(sessionId, enabled) {
       const ui = state.translations[sessionId];
@@ -2941,27 +3532,64 @@ export function createProductionController(options: ProductionControllerOptions)
         cancelReconnect();
         if (pollTimer) clearTimeout(pollTimer);
         if (state.currentHostId) retireHostSession(state.currentHostId, 'disconnected');
+        update({ signingOut: true });
+        // Signing out deletes this browser's keys, so its pairings could
+        // never be used or revoked again: revoke each one first, so no
+        // orphaned pairing keeps counting against the computer's devices.
+        for (const hostId of await identity.listHostIds().catch(() => [] as string[])) {
+          await selfRevokeHost(hostId).catch(() => undefined);
+        }
         accountPending = null;
         if (accountSession) await http.request('/api/v1/account/logout', { protocol: ACCOUNT_PROTOCOL }, accountSession.account_token).catch(() => undefined);
         accountSession = null;
         http.setAccountToken?.(null);
         cancelReconnect();
         if (state.currentHostId) bumpEpoch(state.currentHostId);
-        await auth.logout().catch(() => undefined);
-        await cache.clear();
-        await translationDraftStore.clearAll();
-        await identity.clearAll();
-        hostSessions.clear();
-        hostDrafts.clear();
-        abortAllDownloads();
-        relay?.close('logout');
-        clearRelayBinding();
-        update({
-          account: { status: 'signed_out' },
-          auth: { kind: 'challenge-login', hosts: state.hosts },
-          connection: { kind: 'browser_offline' },
-        });
+        try {
+          await auth.logout().catch(() => undefined);
+          // Each store is cleared even when another fails.
+          await cache.clear().catch(() => undefined);
+          await translationDraftStore.clearAll().catch(() => undefined);
+          await identity.clearAll().catch(() => undefined);
+        } finally {
+          clearServerIdentityPin(options.storageScope);
+          serverPinVerifiedAt = 0;
+          hostSelection.set(null);
+          hostSessions.clear();
+          hostDrafts.clear();
+          hostRuntimes.clear();
+          cancelDirectoryTimers();
+          stateRefresh = null;
+          thumbnailQueue.length = 0;
+          sendingSessions.clear();
+          abortAllDownloads();
+          relay?.close('logout');
+          clearRelayBinding();
+          // Nothing from the signed-out pairings stays on screen: a shared
+          // computer must not keep showing earlier conversations.
+          state = { ...emptyUiState(), settings: state.settings, account: { status: 'signed_out' } };
+          emit();
+        }
       })();
+    },
+    trustServerIdentity() {
+      if (state.auth.kind === 'pairing' && state.auth.pairing.kind === 'failed'
+        && state.auth.pairing.reason === 'server-changed') {
+        clearServerIdentityPin(options.storageScope);
+        serverPinVerifiedAt = 0;
+        actions.restartPairing();
+        return;
+      }
+      const hostId = state.currentHostId;
+      if (state.connection.kind !== 'server_changed') return;
+      clearServerIdentityPin(options.storageScope);
+      serverPinVerifiedAt = 0;
+      if (!hostId) {
+        update({ connection: { kind: 'browser_offline' } });
+        return;
+      }
+      update({ connection: { kind: 'resyncing', synced: 0, total: 1 } });
+      void connectHost(hostId).catch(() => undefined);
     },
     submitPairingCode(code) {
       if (state.auth.kind !== 'pairing' || state.auth.pairing.kind !== 'enter-code') return;
@@ -3061,6 +3689,7 @@ export function createProductionController(options: ProductionControllerOptions)
     },
     close() {
       closed = true;
+      cancelDirectoryTimers();
       for (const timer of logoRetryTimers) clearTimeout(timer);
       logoRetryTimers.clear();
       browserEvents?.removeEventListener('offline', handleBrowserOffline);
@@ -3080,6 +3709,7 @@ export function createProductionController(options: ProductionControllerOptions)
 
 function emptyUiState(): RemoteUiState {
   return {
+    directory: emptyDirectoryState(),
     auth: { kind: 'pairing', pairing: { kind: 'enter-code', attemptsLeft: 5 } },
     connection: { kind: 'browser_offline' },
     hosts: [],
@@ -3137,6 +3767,19 @@ function errorCode(error: unknown): string {
   return 'AUTH_REQUIRED';
 }
 
+/** Pages can repeat a row after a concurrent change; the later copy wins. */
+function mergeDirectoryEntries(current: RemoteDirectoryEntry[], page: RemoteDirectoryEntry[]): RemoteDirectoryEntry[] {
+  const byId = new Map(current.map(entry => [entry.id, entry]));
+  for (const entry of page) byId.set(entry.id, entry);
+  return [...byId.values()];
+}
+
+function pairingLossReason(error: unknown): 'revoked' | 'key_missing' | 'host_key_changed' {
+  if (error instanceof MissingHostKeyError) return 'key_missing';
+  if (error instanceof HostKeyChangedError) return 'host_key_changed';
+  return 'revoked';
+}
+
 function devicePairingWasLost(error: unknown): boolean {
   const code = errorCode(error);
   return code === 'DEVICE_NOT_PAIRED' || code === 'DEVICE_REVOKED';
@@ -3172,8 +3815,9 @@ function showsUnknownOutcome(method: RemoteMethod): boolean {
 }
 
 function connectionAfterFailure(error: unknown): RemoteUiState['connection'] {
+  if (identityPinRejected(error)) return { kind: 'server_changed' };
   return devicePairingWasLost(error)
-    ? { kind: 'device_revoked' }
+    ? { kind: 'device_revoked', reason: pairingLossReason(error) }
     : { kind: 'host_offline', lastSeenAt: Date.now() };
 }
 
@@ -3184,11 +3828,18 @@ function saveBrowserFile(name: string, mime: string, bytes: Uint8Array): void {
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
+  link.rel = 'noopener';
+  link.style.display = 'none';
+  // Firefox needs the link in the document; Safari and Firefox read the
+  // blob after click() returns, so an immediate revoke can cancel the save.
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 function mapPairingFailure(error: unknown, current: RemoteUiState): PairingFailure {
+  if (identityPinRejected(error)) return 'server-changed';
   const code = errorCode(error);
   if (code === 'HOST_OFFLINE') return 'host-offline';
   if (code === 'DEVICE_REVOKED') return 'rejected';

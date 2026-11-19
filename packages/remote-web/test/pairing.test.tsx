@@ -9,12 +9,12 @@ describe('pairing / auth pages (B1)', () => {
     const user = userEvent.setup();
     const { controller } = renderApp({});
     const hosts = controller.state.hosts;
-    await user.click(screen.getByRole('button', { name: 'Switch Host' }));
+    await user.click(screen.getByRole('button', { name: 'Switch computer' }));
     await user.click(screen.getByRole('menuitem', { name: 'Add computer' }));
     expect(screen.getByRole('textbox', { name: 'Pairing code' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(controller.state.hosts).toEqual(hosts);
-    expect(screen.getByRole('button', { name: 'Switch Host' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Switch computer' })).toBeInTheDocument();
   });
 
   it('distinguishes computers with the same name and prompts for selection', async () => {
@@ -27,8 +27,8 @@ describe('pairing / auth pages (B1)', () => {
         { id: 'bbbbbbbb-2222', name: 'Gian Host', online: true, sessionCount: 0 },
       ],
     } });
-    expect(screen.getByText(/Choose a paired computer from the menu above/)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Switch Host' }));
+    expect(screen.getByText(/Choose a paired computer from the switcher/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Switch computer' }));
     expect(screen.getByRole('menuitemradio', { name: /Gian Host · aaaaaaaa/ })).toBeInTheDocument();
     expect(screen.getByRole('menuitemradio', { name: /Gian Host · bbbbbbbb/ })).toBeInTheDocument();
   });
@@ -146,10 +146,10 @@ describe('pairing / auth pages (B1)', () => {
     expect(screen.queryByText('Sign in again in this browser')).toBeNull();
     expect(document.querySelector('.rw-app')).not.toBeNull();
     expect(screen.getByRole('status', { name: 'Connecting to Gian…' }))
-      .toHaveTextContent('Restoring your secure Remote session.');
+      .toHaveTextContent('Opening your secure connection.');
     expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByText('Attach verify:quick to the pre-push hook')).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Switch Host' }));
+    await user.click(screen.getByRole('button', { name: 'Switch computer' }));
     await user.click(screen.getByRole('menuitemradio', { name: /MacBook Pro · Home/ }));
     expect(controller.state.auth.kind).toBe('authenticated');
   });

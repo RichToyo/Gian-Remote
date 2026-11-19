@@ -5,6 +5,7 @@ import {
   DiffOpenContext,
   ImageZoomContext,
   MessageAttachmentOpenContext,
+  MessageAttachmentPreviewContext,
   ScheduleOpenContext,
   TranslationTextRetryContext,
   ScrollerSelectorContext,
@@ -411,6 +412,7 @@ export function UserMessage({
   const t = useChatUiT();
   const zoom = useContext(ImageZoomContext);
   const openAttachment = useContext(MessageAttachmentOpenContext);
+  const previewAttachment = useContext(MessageAttachmentPreviewContext);
   const openSchedule = useContext(ScheduleOpenContext);
   const retryTranslationText = useContext(TranslationTextRetryContext);
   // Echo lifecycle: `pending` until the server emits its `user_message`;
@@ -457,8 +459,21 @@ export function UserMessage({
         )}
         {!inlineDocument && attachments.length > 0 && (
           <div className="msg-attachments user-attachments">
-            {attachments.map((a, i) => (
-              openAttachment ? (
+            {attachments.map((a, i) => {
+              const previewSrc = openAttachment && previewAttachment && isNativeImageMime(a.mime)
+                ? previewAttachment(a) : null;
+              return openAttachment && previewSrc ? (
+                <button
+                  key={`${a.url}-${i}`}
+                  type="button"
+                  className="msg-att zoomable"
+                  title={a.name}
+                  onClick={() => openAttachment(a)}
+                >
+                  <img src={previewSrc} alt={a.name} />
+                  <span className="msg-att-num" aria-hidden="true">{i + 1}</span>
+                </button>
+              ) : openAttachment ? (
                 <button
                   key={`${a.url}-${i}`}
                   type="button"
@@ -501,8 +516,8 @@ export function UserMessage({
                     )}
                   </span>
                 </a>
-              )
-            ))}
+              );
+            })}
           </div>
         )}
         {sendStatus}

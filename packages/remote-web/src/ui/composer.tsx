@@ -9,11 +9,12 @@
  */
 
 import { useRef, useState } from 'react';
+import type { DragEvent } from 'react';
 import type { RemoteSession } from '@gian/remote-protocol';
 import type { EffectiveCapabilities } from '@gian/remote-protocol';
 import { AutoTranslationChip, isNativeImageMime } from '@gian/chat-ui';
 import { draftIsEmpty, emptyDraft, mutationsEnabled } from '../controller/types.js';
-import type { DraftState } from '../controller/types.js';
+import type { DraftState, DraftUpload, RemoteUiActions } from '../controller/types.js';
 import { translationUiFor } from '../controller/translation.js';
 import { useT } from '../i18n/index.js';
 import { useRemoteActions, useRemoteState } from './controller-context.js';
@@ -32,11 +33,56 @@ function extraComposerSupported(
   return (caps as Record<string, { state?: string } | undefined>)[id]?.state === 'supported';
 }
 
+function uploadErrorKey(code: string | undefined): string {
+  if (code === 'FILE_TOO_LARGE') return 'chat.upload.tooLarge';
+  if (code === 'HOST_OFFLINE' || code === 'UNKNOWN_OUTCOME') return 'chat.upload.offline';
+  return 'chat.upload.failed';
+}
+
+function UploadChip({ sessionId, upload }: { sessionId: string; upload: DraftUpload }) {
+  const t = useT();
+  const actions = useRemoteActions();
+  if (upload.status === 'uploading') {
+    return (
+      <span className="composer-chip uploading" data-kind="upload">
+        <span className="spinner" role="status" aria-label={t('chat.upload.progress', { name: upload.name })} />
+        <span className="chip-name">{upload.name}</span>
+        <button
+          type="button"
+          className="chip-x"
+          aria-label={t('chat.upload.cancel', { name: upload.name })}
+          onClick={() => actions.dismissUpload(sessionId, upload.id)}
+        >
+          ×
+        </button>
+      </span>
+    );
+  }
+  return (
+    <span className="composer-chip failed" data-kind="upload" role="alert" title={t(uploadErrorKey(upload.error), { name: upload.name })}>
+      <Icon name="warning" size={12} />
+      <span className="chip-name">{upload.name}</span>
+      <span className="chip-error">{t(uploadErrorKey(upload.error), { name: upload.name })}</span>
+      <button
+        type="button"
+        className="chip-x"
+        aria-label={t('chat.upload.dismiss', { name: upload.name })}
+        onClick={() => actions.dismissUpload(sessionId, upload.id)}
+      >
+        ×
+      </button>
+    </span>
+  );
+}
+
 function DraftChips({ sessionId, draft, disabled }: { sessionId: string; draft: DraftState; disabled: boolean }) {
   const actions = useRemoteActions();
-  if (draft.attachments.length === 0 && draft.contextItems.length === 0 && !draft.document) return null;
+  const state = useRemoteState();
+  const uploads = state.uploads?.[sessionId] ?? [];
+  if (draft.attachments.length === 0 && draft.contextItems.length === 0 && !draft.document && uploads.length === 0) return null;
   return (
     <div className="composer-chips">
+      {uploads.map(upload => <UploadChip key={upload.id} sessionId={sessionId} upload={upload} />)}
       {draft.attachments.map((a, index) => (
         <span key={a.id} className="composer-chip" data-kind="attachment">
           <Icon name="file" size={12} />
@@ -106,19 +152,12 @@ function AttachMenu({ sessionId, disabled }: { sessionId: string; disabled: bool
       <input
         ref={fileInput}
         type="file"
+        multiple
         hidden
         onChange={(event) => {
-          const file = event.target.files?.[0];
+          const files = [...(event.target.files ?? [])];
           event.target.value = '';
-          if (!file) return;
-          void readPickedFile(file).then((bytes) => {
-            actions.uploadDraftAttachment(sessionId, {
-              name: file.name,
-              mime: file.type || 'application/octet-stream',
-              size: file.size || bytes.byteLength,
-              bytes,
-            });
-          });
+          uploadFiles(actions, sessionId, files);
         }}
       />
       <button
@@ -384,6 +423,24 @@ function labelEffortValue(value: string): string {
   return CODEX_EFFORT_LABELS[value] ?? labelConfigValue(value);
 }
 
+/** Upload picked, pasted or dropped files one after another, in order. */
+function uploadFiles(actions: RemoteUiActions, sessionId: string, files: File[]): void {
+  void files.reduce(async (previous, file) => {
+    await previous;
+    const bytes = await readPickedFile(file);
+    actions.uploadDraftAttachment(sessionId, {
+      name: file.name || 'pasted-file',
+      mime: file.type || 'application/octet-stream',
+      size: file.size || bytes.byteLength,
+      bytes,
+    });
+  }, Promise.resolve());
+}
+
+function draggingFiles(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files');
+}
+
 async function readPickedFile(file: File): Promise<Uint8Array> {
   try {
     if (typeof file.arrayBuffer === 'function') {
@@ -456,6 +513,11 @@ export function Composer({ session }: { session: RemoteSession }) {
   const sendPending = Object.values(state.mutations).some(
     (m) => m.phase === 'pending' && (m.label === 'session.send' || m.label === 'session.stop'),
   );
+  const uploading = (state.uploads?.[session.id] ?? []).some(upload => upload.status === 'uploading');
+  const attachSupported = capabilityState(state.capabilities, 'attachment.upload') !== 'unsupported';
+  const canAttach = attachSupported && online;
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const model = session.model || session.agent.name;
   const effort = labelEffortValue(session.thinking ?? 'default');
   const serviceTier = session.service_tier === 'fast' ? 'fast' : 'standard';
@@ -484,7 +546,32 @@ export function Composer({ session }: { session: RemoteSession }) {
       : t('chat.placeholder.idle');
 
   return (
-    <div className="composer-wrap">
+    <div
+      className={`composer-wrap${dragging ? ' dragging' : ''}`}
+      onDragEnter={(event) => {
+        if (!canAttach || !draggingFiles(event)) return;
+        event.preventDefault();
+        dragDepth.current += 1;
+        setDragging(true);
+      }}
+      onDragOver={(event) => {
+        if (!canAttach || !draggingFiles(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      }}
+      onDragLeave={() => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
+      onDrop={(event) => {
+        if (!canAttach || !draggingFiles(event)) return;
+        event.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+        uploadFiles(actions, session.id, [...event.dataTransfer.files]);
+      }}
+    >
+      {dragging && <div className="composer-drop" aria-hidden="true">{t('chat.drop')}</div>}
       <div className="composer">
         <DraftChips sessionId={session.id} draft={draft} disabled={false} />
         <div className="composer-input-wrap">
@@ -494,12 +581,24 @@ export function Composer({ session }: { session: RemoteSession }) {
             placeholder={placeholder}
             rows={2}
             value={draft.text}
+            // The text stays until the Host confirms the send; editing it in
+            // that window would leave a half-sent draft behind.
+            readOnly={sendPending && !empty}
             onChange={(event) => actions.setDraftText(session.id, event.target.value)}
+            onPaste={(event) => {
+              // Pasted images and files attach; pasted text stays text.
+              const files = [...event.clipboardData.files];
+              if (!files.length || !canAttach) return;
+              event.preventDefault();
+              uploadFiles(actions, session.id, files);
+            }}
             onKeyDown={(event) => {
               // IME-friendly: Enter sends, Shift+Enter inserts a newline.
               if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
-                if (!isStop) actions.sendDraft(session.id);
+                // Same conditions as the Send button: never a second send
+                // while the first is still waiting for the Host.
+                if (!isStop && online && sendCapable && !sendPending && !uploading) actions.sendDraft(session.id);
               }
             }}
           />
@@ -583,7 +682,7 @@ export function Composer({ session }: { session: RemoteSession }) {
             className={`composer-act primary${isStop ? ' danger' : ''}`}
             title={isStop ? t('chat.stop.title') : t(running ? 'chat.send.title.busy' : 'chat.send.title')}
             aria-label={isStop ? t('chat.stop.title') : t(running ? 'chat.send.title.busy' : 'chat.send.title')}
-            disabled={!online || !primaryCapable || sendPending || (!isStop && empty)}
+            disabled={!online || !primaryCapable || sendPending || (!isStop && (empty || uploading))}
             onClick={() => {
               if (isStop) actions.stopSession(session.id);
               else actions.sendDraft(session.id);

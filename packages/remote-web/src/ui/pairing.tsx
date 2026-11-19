@@ -199,13 +199,14 @@ const FAILURE_META: Record<
   PairingFailure,
   { titleKey: string; descKey: string; actionKey: string; disabled?: boolean; icon: 'warning' | 'wifi-off' | 'clock' | 'close' }
 > = {
-  invalid: { titleKey: 'pair.fail.expired.title', descKey: 'pair.fail.expired.desc', actionKey: 'pair.action.reenter', icon: 'close' },
+  invalid: { titleKey: 'pair.fail.invalid.title', descKey: 'pair.fail.invalid.desc', actionKey: 'pair.action.reenter', icon: 'close' },
   cancelled: { titleKey: 'pair.fail.cancelled.title', descKey: 'pair.fail.cancelled.desc', actionKey: 'pair.action.restart', icon: 'close' },
   expired: { titleKey: 'pair.fail.expired.title', descKey: 'pair.fail.expired.desc', actionKey: 'pair.action.reenter', icon: 'clock' },
   rejected: { titleKey: 'pair.fail.rejected.title', descKey: 'pair.fail.rejected.desc', actionKey: 'pair.action.restart', icon: 'warning' },
   'attempt-limit': { titleKey: 'pair.fail.rateLimited.title', descKey: 'pair.fail.rateLimited.desc', actionKey: 'pair.action.later', disabled: true, icon: 'close' },
   'already-claimed': { titleKey: 'pair.fail.alreadyClaimed.title', descKey: 'pair.fail.alreadyClaimed.desc', actionKey: 'pair.action.restart', icon: 'warning' },
   'host-offline': { titleKey: 'pair.fail.hostOffline.title', descKey: 'pair.fail.hostOffline.desc', actionKey: 'pair.action.retry', icon: 'wifi-off' },
+  'server-changed': { titleKey: 'pair.fail.serverChanged.title', descKey: 'pair.fail.serverChanged.desc', actionKey: 'pair.action.trustServer', icon: 'warning' },
 };
 
 function FailurePage({ pairing }: { pairing: Extract<PairingState, { kind: 'failed' }> }) {
@@ -229,7 +230,7 @@ function FailurePage({ pairing }: { pairing: Extract<PairingState, { kind: 'fail
           type="button"
           className="btn sm secondary"
           disabled={meta.disabled}
-          onClick={() => actions.restartPairing()}
+          onClick={() => (pairing.reason === 'server-changed' ? actions.trustServerIdentity() : actions.restartPairing())}
         >
           {t(meta.actionKey)}
         </button>

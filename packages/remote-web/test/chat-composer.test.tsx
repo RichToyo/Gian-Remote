@@ -159,7 +159,7 @@ describe('chat + composer (B5)', () => {
     const activeTurn = controller.state.sessions.find((s) => s.id === 's-1')!.active_turn;
     const input = screen.getByRole('textbox');
     await user.type(input, 'add a timeout guard in the hook');
-    const send = screen.getByRole('button', { name: /^Send \(queued while the turn is running\)$/ });
+    const send = screen.getByRole('button', { name: /^Queue message \(the Agent is working\)$/ });
     await user.click(send);
     expect(controller.test.pendingCommandIds()).toHaveLength(1);
     controller.test.resolveAll();
@@ -251,7 +251,7 @@ describe('chat + composer (B5)', () => {
     await user.type(input, 'keep this draft');
     expect(controller.state.drafts['s-1']!.text).toBe('keep this draft');
     // With text the merged button becomes Send, still disabled offline.
-    expect(screen.getByRole('button', { name: /^Send \(queued while the turn is running\)$/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Queue message \(the Agent is working\)$/ })).toBeDisabled();
     // The configuration menu remains inspectable and closable while its
     // mutation controls stay disabled.
     const picker = screen.getByRole('button', { name: /gpt-5\.3-codex/ });
@@ -270,14 +270,14 @@ describe('chat + composer (B5)', () => {
   it('attachment/context/document chips can be added and removed in any mode', async () => {
     const user = userEvent.setup();
     const { controller } = renderApp({ scenario: {}, viewport: 'wide' });
-    await user.click(screen.getByRole('button', { name: 'Add attachment / context / document' }));
+    await user.click(screen.getByRole('button', { name: 'Attach' }));
     await user.click(screen.getByRole('menuitem', { name: 'Attachment' }));
     const fileInput = document.querySelector('input[type="file"]');
     expect(fileInput).toBeTruthy();
     await user.upload(fileInput as HTMLInputElement, new File(['x'], 'attachment.png', { type: 'image/png' }));
-    await user.click(screen.getByRole('button', { name: 'Add attachment / context / document' }));
+    await user.click(screen.getByRole('button', { name: 'Attach' }));
     await user.click(screen.getByRole('menuitem', { name: 'Context item' }));
-    await user.click(screen.getByRole('button', { name: 'Add attachment / context / document' }));
+    await user.click(screen.getByRole('button', { name: 'Attach' }));
     await user.click(screen.getByRole('menuitem', { name: 'Document' }));
     await waitFor(() => expect(controller.state.drafts['s-1']?.attachments).toHaveLength(1));
     const draft = controller.state.drafts['s-1']!;
@@ -288,11 +288,77 @@ describe('chat + composer (B5)', () => {
     expect(controller.state.drafts['s-1']!.attachments).toHaveLength(0);
   });
 
+  it('picks several files at once and attaches each in order', async () => {
+    const user = userEvent.setup();
+    const { controller } = renderApp({ scenario: {}, viewport: 'wide' });
+    await user.click(screen.getByRole('button', { name: 'Attach' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Attachment' }));
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.multiple).toBe(true);
+    await user.upload(input, [new File(['a'], 'one.txt', { type: 'text/plain' }), new File(['b'], 'two.txt', { type: 'text/plain' })]);
+    await waitFor(() => expect(controller.state.drafts['s-1']?.attachments.map(item => item.name)).toEqual(['one.txt', 'two.txt']));
+  });
+
+  it('a pasted image attaches; pasted text stays text', async () => {
+    const user = userEvent.setup();
+    const { controller } = renderApp({ scenario: {}, viewport: 'wide' });
+    const box = screen.getByRole('textbox');
+    await user.click(box);
+    await user.paste({ files: [new File(['png'], 'pasted.png', { type: 'image/png' })] } as unknown as DataTransfer);
+    await waitFor(() => expect(controller.state.drafts['s-1']?.attachments.map(item => item.name)).toEqual(['pasted.png']));
+    await user.paste('plain words');
+    expect(controller.state.drafts['s-1']?.text).toBe('plain words');
+  });
+
+  it('shows uploads in progress, holds Send until they finish, and explains a failed one', async () => {
+    const user = userEvent.setup();
+    const { controller } = renderApp({
+      scenario: {
+        view: { kind: 'chat', sessionId: 's-3' },
+        hostData: { 'host-home': {
+          capabilities: sampleCapabilities(), tasks: sampleTasks(), sessions: sampleSessions(),
+          uploads: { 's-3': [
+            { id: 'u1', name: 'video.mov', size: 10, status: 'uploading' },
+            { id: 'u2', name: 'huge.zip', size: 30, status: 'failed', error: 'FILE_TOO_LARGE' },
+          ] },
+        } },
+      },
+      viewport: 'wide',
+    });
+    expect(screen.getByRole('status', { name: 'Uploading video.mov' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('huge.zip');
+    expect(screen.getByRole('alert')).toHaveTextContent('Too large (20 MB max)');
+    await user.type(screen.getByRole('textbox'), 'see attached');
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Remove huge.zip' }));
+    expect(controller.state.uploads?.['s-3']?.map(upload => upload.id)).toEqual(['u1']);
+  });
+
+  it('shows an image attachment as a preview once it has been fetched', async () => {
+    const attachmentId = generateCanonicalId();
+    const transcript = sampleTranscript().map((item) => item.kind === 'user'
+      ? { ...item, attachments: [{ name: 'screen.png', mime: 'image/png', url: attachmentId, size: 128 }] }
+      : item);
+    const { controller } = renderApp({
+      scenario: { hostData: { 'host-home': {
+        capabilities: sampleCapabilities(), tasks: sampleTasks(), sessions: sampleSessions(),
+        transcripts: { 's-1': transcript },
+        thumbnails: { [attachmentId]: 'data:image/png;base64,iVBORw0KGgo=' },
+      } } },
+      viewport: 'wide',
+    });
+    const image = await screen.findByRole('img', { name: 'screen.png' });
+    expect(image).toHaveAttribute('src', 'data:image/png;base64,iVBORw0KGgo=');
+    controller.autoResolveFile = false;
+    await userEvent.setup().click(image);
+    expect(controller.state.fileViewer?.handle).toEqual({ id: attachmentId, sessionId: 's-1', label: 'screen.png' });
+  });
+
   it('image attachment chips read image<N> by draft position; files keep their names', async () => {
     const user = userEvent.setup();
     renderApp({ scenario: {}, viewport: 'wide' });
     const attach = async (file: File) => {
-      await user.click(screen.getByRole('button', { name: 'Add attachment / context / document' }));
+      await user.click(screen.getByRole('button', { name: 'Attach' }));
       await user.click(screen.getByRole('menuitem', { name: 'Attachment' }));
       await user.upload(document.querySelector('input[type="file"]') as HTMLInputElement, file);
     };
@@ -325,7 +391,7 @@ describe('chat + composer (B5)', () => {
       } } },
       viewport: 'wide',
     });
-    await user.click(screen.getByRole('button', { name: 'Add attachment / context / document' }));
+    await user.click(screen.getByRole('button', { name: 'Attach' }));
     expect(screen.getByRole('menuitem', { name: 'Attachment' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Context item' })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: 'Document' })).toBeNull();
@@ -346,7 +412,7 @@ describe('chat + composer (B5)', () => {
       } } },
       viewport: 'wide',
     });
-    expect(screen.queryByRole('button', { name: 'Add attachment / context / document' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Attach' })).toBeNull();
     // session.stop remains supported → the merged button (Stop here) stays enabled
     expect(screen.getByRole('button', { name: /Stop/ })).toBeEnabled();
   });
@@ -366,7 +432,7 @@ describe('chat + composer (B5)', () => {
       viewport: 'wide',
     });
     await user.type(screen.getByRole('textbox'), 'hello');
-    const send = screen.getByRole('button', { name: /^Send \(queued while the turn is running\)$/ });
+    const send = screen.getByRole('button', { name: /^Queue message \(the Agent is working\)$/ });
     expect(send).toBeDisabled();
     controller.actions.sendDraft('s-1');
     expect(controller.test.pendingCommandIds()).toHaveLength(0);
@@ -385,11 +451,11 @@ describe('chat + composer (B5)', () => {
     const { controller } = renderApp({ scenario: {}, viewport: 'wide' });
     await user.type(screen.getByRole('textbox'), 'probe unknown');
     controller.test.scriptSend('unknown');
-    await user.click(screen.getByRole('button', { name: /^Send \(queued while the turn is running\)$/ }));
+    await user.click(screen.getByRole('button', { name: /^Queue message \(the Agent is working\)$/ }));
     controller.test.resolveAll();
-    expect(screen.getByText(/unconfirmed/)).toBeInTheDocument();
+    expect(screen.getByText(/Couldn't confirm/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Retry/i })).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Refresh state' }));
-    expect(screen.queryByText(/unconfirmed/)).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Check status' }));
+    expect(screen.queryByText(/Couldn't confirm/)).toBeNull();
   });
 });

@@ -16,7 +16,7 @@ describe('remote settings (B9)', () => {
     const user = userEvent.setup();
     renderApp({ scenario: { view: { kind: 'settings' } }, viewport: 'wide' });
     expect(document.body.dataset.theme).toBe('light');
-    await user.click(screen.getByRole('radio', { name: 'dark' }));
+    await user.click(screen.getByRole('radio', { name: 'Dark' }));
     expect(document.body.dataset.theme).toBe('dark');
     await user.click(screen.getByRole('button', { name: 'rose' }));
     expect(document.body.dataset.accent).toBe('rose');
@@ -29,26 +29,26 @@ describe('remote settings (B9)', () => {
       viewport: 'wide',
     });
     expect(document.body.dataset.theme).toBe('dark');
-    await user.click(screen.getByRole('radio', { name: 'system' }));
+    await user.click(screen.getByRole('radio', { name: 'System' }));
     expect(document.body.dataset.theme).toBe('light');
   });
 
   it('lists host pairings; current host is badged', () => {
     renderApp({ scenario: { view: { kind: 'settings' } }, viewport: 'wide' });
     expect(screen.getAllByText('MacBook Pro · Home').length).toBeGreaterThan(0);
-    expect(screen.getByText('current')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Disconnect this Host' })).toHaveLength(3);
+    expect(screen.getByText('this one')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(3);
   });
 
   it('disconnect requires a second confirmation and removes the host', async () => {
     const user = userEvent.setup();
     const { controller } = renderApp({ scenario: { view: { kind: 'settings' } }, viewport: 'wide' });
     const row = document.querySelector('[data-host-id="host-lab"]')! as HTMLElement;
-    await user.click(within(row).getByRole('button', { name: 'Disconnect this Host' }));
+    await user.click(within(row).getByRole('button', { name: 'Remove' }));
     // first click only asks
     expect(controller.state.hosts.find((h) => h.id === 'host-lab')).toBeTruthy();
-    expect(screen.getByText(/Disconnect Old ThinkPad · Lab?/)).toBeInTheDocument();
-    await user.click(within(row).getByRole('button', { name: 'Disconnect this Host' }));
+    expect(screen.getByText(/Remove Old ThinkPad · Lab\?/)).toBeInTheDocument();
+    await user.click(within(row).getByRole('button', { name: 'Remove' }));
     expect(controller.state.hosts.find((h) => h.id === 'host-lab')).toBeUndefined();
   });
 
@@ -56,29 +56,26 @@ describe('remote settings (B9)', () => {
     const user = userEvent.setup();
     const { controller } = renderApp({ scenario: { view: { kind: 'settings' } }, viewport: 'wide' });
     const row = document.querySelector('[data-host-id="host-home"]')! as HTMLElement;
-    await user.click(within(row).getByRole('button', { name: 'Disconnect this Host' }));
-    await user.click(within(row).getByRole('button', { name: 'Disconnect this Host' }));
+    await user.click(within(row).getByRole('button', { name: 'Remove' }));
+    await user.click(within(row).getByRole('button', { name: 'Remove' }));
     expect(controller.state.currentHostId).toBe('host-work');
   });
 
-  it('logout stays in the shell and re-authenticates from the Host selector', async () => {
+  it('sign out asks first, then leaves nothing of the pairings on screen', async () => {
     const user = userEvent.setup();
     const { controller } = renderApp({
       scenario: { view: { kind: 'settings' }, snapshotReceivedAt: Date.now() },
       viewport: 'wide',
     });
+    expect(screen.getByText(/Removes this browser from all your computers/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Sign out of this browser' }));
     expect(controller.state.auth.kind).toBe('authenticated');
+    expect(screen.getByRole('alertdialog', { name: 'Sign out of this browser' })).toHaveTextContent('has to be paired again');
     await user.click(screen.getAllByRole('button', { name: 'Sign out of this browser' })[0]!);
-    expect(controller.state.auth.kind).toBe('challenge-login');
-    expect(screen.queryByText('Sign in again in this browser')).toBeNull();
-    expect(screen.queryByRole('status', { name: 'Connecting to Gian…' })).toBeNull();
-    expect(document.querySelector('.rw-app')).not.toBeNull();
-    // Pairings remain intact; re-entry lives in the existing Host selector.
-    expect(controller.state.auth.kind === 'challenge-login' && controller.state.auth.hosts.length).toBe(3);
-    await user.click(screen.getByRole('button', { name: 'Switch Host' }));
-    await user.click(screen.getByRole('menuitemradio', { name: /MacBook Pro · Home/ }));
-    expect(controller.state.auth.kind).toBe('authenticated');
+    expect(controller.state.auth.kind).toBe('pairing');
+    expect(controller.state.hosts).toEqual([]);
+    expect(controller.state.sessions).toEqual([]);
+    expect(screen.queryByText('Wire verify:quick into the pre-push hook')).toBeNull();
   });
 
   it('no account section, no other-device management', () => {

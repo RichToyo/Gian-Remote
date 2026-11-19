@@ -54,6 +54,22 @@ export async function pinDiscoveredServer(input: {
   return discovered.fingerprint;
 }
 
+/** Forget the pinned Server identity for this storage scope, so the next
+ *  discovery pins whatever the Server presents now. Only an explicit user
+ *  decision (or a full sign-out) may call this. */
+export function clearServerIdentityPin(serverOrigin?: string): void {
+  const storage = globalThis.localStorage;
+  if (!storage) return;
+  try {
+    storage.removeItem(serverOrigin ? serverPinStorageKey(serverOrigin) : SERVER_PIN_KEY);
+    // An unassigned legacy row blocks every scoped read; the user's decision
+    // to trust the current Server covers it too.
+    if (serverOrigin) storage.removeItem(SERVER_PIN_KEY);
+  } catch {
+    // Storage unavailable: the next read reports it.
+  }
+}
+
 export function identityPinRejected(error: unknown): boolean {
   return error instanceof RemoteProtocolError && (
     error.message === 'server identity changed'

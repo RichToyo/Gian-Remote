@@ -14,8 +14,10 @@
 
 import type { MsgItem, TranscriptItem } from '@gian/chat-ui';
 import {
+  DIRECTORY_RECENT_MS,
   generateCanonicalId,
   type EffectiveCapabilities,
+  type RemoteDirectoryEntry,
   type RemoteInteraction,
   type RemoteQueueEntry,
   type RemoteSession,
@@ -41,7 +43,8 @@ import type {
   RemoteUiController,
   RemoteUiState,
 } from './types.js';
-import { emptyDraft, emptyTranslationUiState, mutationsEnabled } from './types.js';
+import { emptyDirectoryList, emptyDirectoryState, emptyDraft, emptyTranslationUiState, mutationsEnabled } from './types.js';
+import type { DirectoryUiState } from './types.js';
 import type { RemoteTranslationUiState } from './types.js';
 import { applyCanonicalEvent } from './apply-control.js';
 
@@ -87,6 +90,13 @@ export interface HostData {
   /** Per-session translation UI projection overrides (merged onto the empty
    *  default — a fixture only sets the fields its scenario exercises). */
   translations?: Record<string, Partial<RemoteTranslationUiState>>;
+  /** Every conversation the directory lists; undefined = a Host that
+   *  predates wire.session_directory_v1. */
+  directory?: RemoteDirectoryEntry[];
+  /** Image previews by attachment url (data: URLs). */
+  thumbnails?: Record<string, string>;
+  /** Uploads to show in the composer, per session. */
+  uploads?: RemoteUiState['uploads'];
 }
 
 export interface FixtureTestHooks {
@@ -198,6 +208,32 @@ export function sampleSessions(): RemoteSession[] {
     }),
     sampleSession({ id: 's-2', name: 'Remote Web protocol §12 review', task_id: 'task-1', status: 'pending' }),
     sampleSession({ id: 's-3', name: 'Model result review', task_id: 'task-2', status: 'done', unread: true }),
+  ];
+}
+
+/** Directory rows for the sample Host: the Doing sessions plus finished,
+ *  Task-less and older conversations the snapshot never carries. */
+export function sampleDirectory(): RemoteDirectoryEntry[] {
+  const now = Date.now();
+  const ws1 = { id: 'ws-1', name: '~/Coding/Gian-Dev' };
+  const ws2 = { id: 'ws-2', name: '~/Coding/notes' };
+  const codex = { id: 'agent-codex', name: 'Codex', proxy: 'codex' };
+  const claude = { id: 'agent-claude', name: 'Claude', proxy: 'claude' };
+  const release = { id: 'task-1', name: 'Gian 0.5.4 release', status: 'open' as const };
+  const sync = { id: 'task-2', name: 'Data sync investigation', status: 'open' as const };
+  const shipped = { id: 'task-0', name: 'Gian 0.5.3 release', status: 'done' as const };
+  const row = (partial: Partial<RemoteDirectoryEntry> & { id: string; name: string }): RemoteDirectoryEntry => ({
+    revision: 'rev-1', workspace: ws1, task: null, agent: codex, status: 'done', unread: false,
+    waiting_for_user: false, last_activity_at: now - 3_600_000, completed_at: null, ...partial,
+  });
+  return [
+    row({ id: 's-1', name: 'Wire verify:quick into the pre-push hook', task: release, status: 'running', last_activity_at: now - 20_000 }),
+    row({ id: 's-2', name: 'Remote Web protocol §12 review', task: release, status: 'pending', waiting_for_user: true, last_activity_at: now - 300_000 }),
+    row({ id: 's-4', name: 'Changelog draft for 0.5.4', task: release, agent: claude, last_activity_at: now - 26 * 3_600_000 }),
+    row({ id: 's-3', name: 'Model result review', task: sync, unread: true, last_activity_at: now - 2 * 3_600_000 }),
+    row({ id: 's-5', name: 'Why does the cache miss on cold start?', workspace: ws2, agent: claude, last_activity_at: now - 50 * 60_000 }),
+    row({ id: 's-6', name: 'Rename helper scripts', last_activity_at: now - 3 * 86_400_000 }),
+    row({ id: 's-7', name: 'Notarization fix', task: shipped, last_activity_at: now - 12 * 86_400_000 }),
   ];
 }
 
@@ -353,6 +389,7 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
         snapshotReceivedAt: Date.now(),
         transcripts: { 's-1': sampleTranscript() },
         transcriptsStreaming: { 's-1': true },
+        directory: sampleDirectory(),
       };
     }
     return {
@@ -382,6 +419,27 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
       sessions: data.sessions ?? [],
       interactions: data.interactions ?? [],
       transcripts: data.transcripts ?? {},
+    };
+  }
+
+  /** The fixture answers directory reads synchronously from HostData. */
+  function directoryOf(data: HostData, hostId: string | null, previous?: DirectoryUiState): DirectoryUiState {
+    const rows = data.directory;
+    const base = { ...emptyDirectoryState(hostId), view: previous?.view ?? 'tasks' as const };
+    if (!rows) return base;
+    const asOf = Date.now();
+    return {
+      ...base,
+      supported: true,
+      lists: {
+        tasks: { entries: rows.filter(entry => entry.task?.status === 'open'), status: 'complete', cursor: null },
+        repos: {
+          entries: rows.filter(entry => entry.status === 'running' || entry.waiting_for_user
+            || (entry.last_activity_at !== null && entry.last_activity_at >= asOf - DIRECTORY_RECENT_MS)),
+          status: 'complete', cursor: null,
+        },
+        search: emptyDirectoryList(),
+      },
     };
   }
 
@@ -420,6 +478,9 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
     mutations: {},
     unknownCommandId: scenario.unknownCommandId ?? null,
     settings: scenario.settings ?? { theme: 'light', accent: 'plum' },
+    directory: directoryOf(initial, currentHostId),
+    uploads: initial.uploads ?? {},
+    thumbnails: {},
   };
 
   function transcriptsOf(data: HostData): RemoteUiState['transcripts'] {
@@ -593,7 +654,7 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
         const session = sampleSession({
           id: id('s'),
           name: op.input.name ?? null,
-          task_id: op.input.taskId,
+          task_id: op.input.taskId || null,
           workspace_id: op.input.workspaceId,
           status: 'new',
         });
@@ -602,6 +663,11 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
           sessions: [...state.sessions, session],
           view: { kind: 'chat', sessionId: session.id },
           mobilePage: 'chat',
+          transcripts: { ...state.transcripts, [session.id]: {
+            items: [], hydrated: true, streaming: false, hasOlder: false, loadingOlder: false, historyError: null,
+          } },
+          ...(!session.task_id && state.directory
+            ? { directory: { ...state.directory, pinned: [session.id, ...state.directory.pinned] } } : {}),
         });
         return;
       }
@@ -693,6 +759,7 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
         transcripts: transcriptsOf(data),
         drafts: {},
         translations: translationsOf(data),
+        directory: directoryOf(data, hostId, state.directory),
         queueNotice: null,
         fileViewer: null,
         fileDownload: { status: 'idle' },
@@ -708,7 +775,21 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
     },
 
     selectSession(sessionId) {
-      if (!sessionById(sessionId)) return;
+      if (!sessionById(sessionId)) {
+        const entry = (hostData.get(state.currentHostId ?? '')?.directory ?? []).find(row => row.id === sessionId);
+        if (!entry || !state.directory) return;
+        // A directory chat outside the snapshot: pinned like production.
+        update({
+          sessions: [...state.sessions, sampleSession({
+            id: entry.id, name: entry.name, task_id: entry.task?.id ?? null, workspace_id: entry.workspace.id,
+            agent: entry.agent, status: entry.status, unread: entry.unread, revision: entry.revision,
+          })],
+          directory: { ...state.directory, pinned: [entry.id, ...state.directory.pinned] },
+          transcripts: { ...state.transcripts, [entry.id]: state.transcripts[entry.id] ?? {
+            items: [], hydrated: true, streaming: false, hasOlder: false, loadingOlder: false, historyError: null,
+          } },
+        });
+      }
       update({ view: { kind: 'chat', sessionId }, mobilePage: 'chat', fileViewer: null });
     },
 
@@ -738,11 +819,27 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
       update({ catalogInvalidated: false });
     },
 
+    setDirectoryView(view) {
+      if (!state.directory) return;
+      update({ directory: { ...state.directory, view, query: '' } });
+    },
+    setDirectoryQuery(query) {
+      if (!state.directory) return;
+      const needle = query.trim().toLowerCase();
+      const rows = hostData.get(state.currentHostId ?? '')?.directory ?? [];
+      const entries = needle ? rows.filter(entry => [entry.name ?? '', entry.workspace.name, entry.task?.name ?? '']
+        .join('\n').toLowerCase().includes(needle)) : [];
+      update({ directory: { ...state.directory, query, lists: { ...state.directory.lists,
+        search: needle ? { entries, status: 'complete', cursor: null, query: query.trim() } : emptyDirectoryList() } } });
+    },
+    loadMoreDirectory() {},
+    refreshDirectory() {},
+
     createSession(input) {
       if (!guardMutation() || !capability('session.create')) return;
       if (!input.workspaceId || !input.agentId) return;
       if (state.catalogInvalidated) return;
-      if (!state.catalog?.tasks.some((task) => task.id === input.taskId)) return;
+      if (input.taskId ? !state.catalog?.tasks.some((task) => task.id === input.taskId) : !state.directory?.supported) return;
       const agent = state.catalog?.agents.find((a) => a.id === input.agentId);
       if (!agent || agent.readiness !== 'ready') return;
       startMutation('session.create', { op: 'create', input });
@@ -779,6 +876,17 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
     removeDraftContextItem(sessionId, itemId) {
       const draft = state.drafts[sessionId] ?? emptyDraft();
       update({ drafts: { ...state.drafts, [sessionId]: { ...draft, contextItems: draft.contextItems.filter((c) => c.id !== itemId) } } });
+    },
+    dismissUpload(sessionId, uploadId) {
+      const uploads = { ...(state.uploads ?? {}) };
+      uploads[sessionId] = (uploads[sessionId] ?? []).filter(upload => upload.id !== uploadId);
+      update({ uploads });
+    },
+    requestThumbnail(sessionId, attachment) {
+      const key = `${sessionId}:${attachment.url}`;
+      if (state.thumbnails?.[key]) return;
+      const dataUrl = hostData.get(state.currentHostId ?? '')?.thumbnails?.[attachment.url];
+      update({ thumbnails: { ...(state.thumbnails ?? {}), [key]: dataUrl ? { status: 'ready', dataUrl } : { status: 'skipped' } } });
     },
 
     sendDraft(sessionId) {
@@ -936,7 +1044,14 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
       if (!capability('state.refresh')) return;
       // Fixture: a refresh settles unknown outcomes against the canonical
       // state; it never retries the command.
-      update({ unknownCommandId: null });
+      update({
+        unknownCommandId: null,
+        ...(state.connection.kind === 'taken_over' ? { connection: { kind: 'online' as const } } : {}),
+      });
+    },
+
+    trustServerIdentity() {
+      if (state.connection.kind === 'server_changed') update({ connection: { kind: 'online' } });
     },
 
     dismissUnknown(commandId) {
@@ -967,10 +1082,18 @@ export function createFixtureController(scenario: FixtureScenario = {}): Fixture
     },
 
     logoutBrowser() {
-      // Ends only this browser's refresh family + decrypted caches; the
-      // Host-scoped pairing keys remain, so re-entry is a device-key
-      // challenge login, not a new pairing (§5.6).
-      update({ auth: { kind: 'challenge-login', hosts: state.hosts } });
+      // Like production: this browser's pairings are revoked and its keys,
+      // caches and on-screen conversations are gone; using Remote again
+      // means pairing again.
+      pending.clear();
+      update({
+        auth: { kind: 'pairing', pairing: { kind: 'enter-code', attemptsLeft: 5 } },
+        connection: { kind: 'browser_offline' },
+        hosts: [], currentHostId: null, tasks: [], sessions: [], interactions: [], workspaces: [],
+        transcripts: {}, drafts: {}, translations: {}, uploads: {}, thumbnails: {},
+        view: { kind: 'empty' }, mutations: {}, unknownCommandId: null, fileViewer: null,
+        directory: emptyDirectoryState(),
+      });
     },
 
     submitPairingCode(code) {

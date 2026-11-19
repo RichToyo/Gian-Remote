@@ -15,6 +15,7 @@
 import type { TranscriptHistoryErrorState, TranscriptItem } from '@gian/chat-ui';
 import type {
   EffectiveCapabilities,
+  RemoteDirectoryEntry,
   RemoteInteraction,
   RemoteSession,
   RemoteTask,
@@ -40,8 +41,25 @@ export type ConnectionState =
   | { kind: 'relay_reconnecting'; attempt: number }
   | { kind: 'host_offline'; lastSeenAt: number }
   | { kind: 'resyncing'; synced: number; total: number }
-  | { kind: 'device_revoked' }
+  /** The same browser opened this computer in another tab or window; the
+   *  Server closed this tab's connection. Never reconnects on its own, so two
+   *  tabs cannot keep taking the connection from each other. */
+  | { kind: 'taken_over' }
+  /** The Remote Server presented a different identity than the one this
+   *  browser pinned. Nothing connects until the user decides. */
+  | { kind: 'server_changed' }
+  /** Terminal for this pairing. `reason` only changes the explanation:
+   *  revoked on the computer, this browser's key is gone, or the computer's
+   *  encryption key differs from the one this browser first saw. */
+  | { kind: 'device_revoked'; reason?: 'revoked' | 'key_missing' | 'host_key_changed' }
   | { kind: 'version_mismatch'; requiredVersion: string; hostVersion: string };
+
+/** States the controller must never leave by reconnecting on its own. */
+export function connectionHeld(connection: ConnectionState): boolean {
+  return connection.kind === 'device_revoked'
+    || connection.kind === 'taken_over'
+    || connection.kind === 'server_changed';
+}
 
 /** Mutations are only allowed while fully online (§7.4: resync keeps them
  *  disabled until hello + snapshot/resume completes). */
@@ -90,6 +108,30 @@ export interface DraftAttachment {
   name: string;
   mime: string;
   size: number;
+}
+
+/** A file on its way to the Host. It joins `attachments` only once the Host
+ *  confirmed it; until then Send waits, so a message never leaves without
+ *  a file the user attached. */
+export interface DraftUpload {
+  id: string;
+  name: string;
+  size: number;
+  status: 'uploading' | 'failed';
+  /** Error code for a failed upload (FILE_TOO_LARGE, HOST_OFFLINE, …). */
+  error?: string;
+}
+
+/** Inline preview of an image attachment in the transcript, keyed by
+ *  `${sessionId}:${attachment url}`. 'skipped' = not an image or larger than
+ *  the preview limit; the file chip stays. */
+export interface ThumbnailState {
+  status: 'loading' | 'ready' | 'error' | 'skipped';
+  dataUrl?: string;
+}
+
+export function thumbnailKey(sessionId: string, url: string): string {
+  return `${sessionId}:${url}`;
 }
 
 export interface DraftContextItem {
@@ -283,6 +325,57 @@ export type FileDownloadState =
   | { status: 'error'; message: string };
 
 // ---------------------------------------------------------------------------
+// Conversation directory (wire.session_directory_v1). The rail lists every
+// conversation the device may open, not only the Doing snapshot. Hosts that
+// predate the feature leave `supported` false and the rail falls back to the
+// snapshot's open Tasks.
+// ---------------------------------------------------------------------------
+
+export type DirectoryList = 'tasks' | 'repos' | 'search';
+
+export interface DirectoryListState {
+  entries: RemoteDirectoryEntry[];
+  status: 'idle' | 'loading' | 'complete' | 'incomplete' | 'error';
+  /** Continuation for "Load more"; null when complete or not loaded. */
+  cursor: string | null;
+  /** The query these search entries answer. */
+  query?: string;
+  error?: string;
+}
+
+export interface DirectoryUiState {
+  /** The Host this directory state belongs to. Nothing in it (pinned chats
+   *  above all) may survive into another Host's view. */
+  hostId: string | null;
+  supported: boolean;
+  /** Selected rail tab; search shows while `query` is not empty. */
+  view: 'tasks' | 'repos';
+  query: string;
+  lists: Record<DirectoryList, DirectoryListState>;
+  /** Sessions opened from the directory that the Doing snapshot does not
+   *  carry. They stay in `sessions` across snapshots and patches. */
+  pinned: string[];
+  /** A directory chat whose session.subscribe has not answered yet. */
+  opening: string | null;
+}
+
+export function emptyDirectoryList(): DirectoryListState {
+  return { entries: [], status: 'idle', cursor: null };
+}
+
+export function emptyDirectoryState(hostId: string | null = null): DirectoryUiState {
+  return {
+    hostId,
+    supported: false,
+    view: 'tasks',
+    query: '',
+    lists: { tasks: emptyDirectoryList(), repos: emptyDirectoryList(), search: emptyDirectoryList() },
+    pinned: [],
+    opening: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Views / navigation (state-driven; no router dependency)
 // ---------------------------------------------------------------------------
 
@@ -306,7 +399,9 @@ export type PairingFailure =
   | 'rejected'
   | 'attempt-limit'
   | 'already-claimed'
-  | 'host-offline';
+  | 'host-offline'
+  /** The Remote Server's identity differs from the one this browser pinned. */
+  | 'server-changed';
 
 export type PairingState =
   | { kind: 'enter-code'; attemptsLeft: number }
@@ -329,6 +424,8 @@ export interface RemoteUiState {
     login?: string; userCode?: string; expiresAt?: number; intervalSeconds?: number;
   };
   addingHost?: boolean;
+  /** Sign-out is revoking this browser's pairings. */
+  signingOut?: boolean;
   connectionPhase?: 'auth' | 'relay' | 'sync';
   connectionFailed?: boolean;
   auth: AuthState;
@@ -346,6 +443,8 @@ export interface RemoteUiState {
   tasks: RemoteTask[];
   sessions: RemoteSession[];
   interactions: RemoteInteraction[];
+  /** Conversation directory; optional so legacy fixtures and caches stay valid. */
+  directory?: DirectoryUiState;
   /** Per-interaction UI phase, keyed by interaction id. */
   interactionPhases: Record<string, InteractionPhase>;
   /** Last `interaction.respond` failure per interaction id; cleared on retry. */
@@ -365,6 +464,10 @@ export interface RemoteUiState {
 
   transcripts: Record<string, TranscriptState>;
   drafts: Record<string, DraftState>;
+  /** Uploads in progress or failed, per session (optional for old fixtures). */
+  uploads?: Record<string, DraftUpload[]>;
+  /** Image previews for transcript attachments. */
+  thumbnails?: Record<string, ThumbnailState>;
   /** Per-session conversation-translation projection (host-scoped; cleared
    *  on host switch exactly like transcripts). */
   translations: Record<string, RemoteTranslationUiState>;
@@ -388,6 +491,7 @@ export interface RemoteUiState {
 export interface CreateSessionInput {
   workspaceId: string;
   agentId: string;
+  /** '' creates a chat outside any Task (directory Hosts only). */
   taskId: string;
   name?: string;
   model?: string;
@@ -410,6 +514,13 @@ export interface RemoteUiActions {
   openMobilePage(page: MobilePage): void;
   backToChat(): void;
 
+  // Conversation directory (no-ops when the Host predates it)
+  setDirectoryView(view: 'tasks' | 'repos'): void;
+  /** Debounced search; '' returns to the selected tab. */
+  setDirectoryQuery(query: string): void;
+  loadMoreDirectory(list: DirectoryList): void;
+  refreshDirectory(): void;
+
   // New chat
   refreshCatalog(): void;
   createSession(input: CreateSessionInput): void;
@@ -426,6 +537,10 @@ export interface RemoteUiActions {
   addDraftContextItem(sessionId: string, item: DraftContextItem): void;
   setDraftDocument(sessionId: string, doc: DraftDocument | null): void;
   removeDraftAttachment(sessionId: string, attachmentId: string): void;
+  /** Remove a failed upload's chip. */
+  dismissUpload(sessionId: string, uploadId: string): void;
+  /** Load the inline preview of an image attachment (bounded, cached). */
+  requestThumbnail(sessionId: string, attachment: { url: string; mime?: string; size?: number; name: string }): void;
   removeDraftContextItem(sessionId: string, itemId: string): void;
   /** Idle turn: send. Active turn: enqueue (Queue is the default; steer
    *  happens through the Queue row's Send now). */
@@ -478,7 +593,11 @@ export interface RemoteUiActions {
   downloadFile(): void;
 
   // Recovery
+  /** Also how a tab that another tab took over takes the connection back. */
   refreshState(): void;
+  /** Explicit user decision after `server_changed` (or a pairing that failed
+   *  with 'server-changed'): forget the pinned Server identity and retry. */
+  trustServerIdentity(): void;
   dismissUnknown(commandId: string): void;
 
   // Settings

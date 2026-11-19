@@ -68,15 +68,27 @@ function syncTranscriptActivity(state: RemoteUiState, sessionIds?: Set<string>):
   };
 }
 
+/** Sessions opened from the directory survive snapshots and patches that do
+ *  not carry them (a chat outside an open Task is never in the snapshot). */
+function pinnedIds(state: RemoteUiState, hostId = state.currentHostId): Set<string> {
+  // Pins of another Host (e.g. the one shown before pairing this one) never
+  // carry over.
+  return new Set(state.directory && state.directory.hostId === hostId ? state.directory.pinned : []);
+}
+
 export function applySnapshotToState(
   state: RemoteUiState,
   snapshot: RemoteStateSnapshot,
 ): RemoteUiState {
   const first = snapshot.sessions[0];
-  const sessionIds = new Set(snapshot.sessions.map((session) => session.id));
+  const snapshotIds = new Set(snapshot.sessions.map((session) => session.id));
+  const pinned = pinnedIds(state, snapshot.host.id);
+  const keptSessions = state.sessions.filter(session => pinned.has(session.id) && !snapshotIds.has(session.id));
+  const sessions = [...snapshot.sessions, ...keptSessions];
+  const keptIds = new Set(keptSessions.map(session => session.id));
+  const sessionIds = new Set(sessions.map((session) => session.id));
   const currentView = state.view;
-  const keepChat = currentView.kind === 'chat'
-    && snapshot.sessions.some((session) => session.id === currentView.sessionId);
+  const keepChat = currentView.kind === 'chat' && sessionIds.has(currentView.sessionId);
   return syncTranscriptActivity({
     ...state,
     auth: { kind: 'authenticated' },
@@ -87,8 +99,11 @@ export function applySnapshotToState(
     locale: 'en',
     workspaces: snapshot.workspaces,
     tasks: snapshot.tasks,
-    sessions: snapshot.sessions,
-    interactions: snapshot.interactions,
+    sessions,
+    interactions: [
+      ...snapshot.interactions,
+      ...state.interactions.filter(interaction => keptIds.has(interaction.session_id)),
+    ],
     transcripts: Object.fromEntries(
       Object.entries(state.transcripts).filter(([sessionId]) => sessionIds.has(sessionId)),
     ),
@@ -162,7 +177,10 @@ export function mergeRemotePatch(state: RemoteUiState, patch: RemoteStatePatch):
     };
   }
   if (patch.sessions) {
-    const sessions = upsertRemove(next.sessions, patch.sessions.upsert, patch.sessions.remove_ids);
+    // A pinned directory chat leaving the Doing snapshot is still open here.
+    const pinned = pinnedIds(next);
+    const sessions = upsertRemove(next.sessions, patch.sessions.upsert,
+      patch.sessions.remove_ids.filter(id => !pinned.has(id)));
     const sessionIds = new Set(sessions.map((session) => session.id));
     const transcripts = Object.fromEntries(
       Object.entries(next.transcripts).filter(([sessionId]) => sessionIds.has(sessionId)),

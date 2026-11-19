@@ -80,10 +80,29 @@ export function ConnectionBanner({ connection }: { connection: ConnectionState }
           </button>
         </div>
       );
+    case 'taken_over':
+      return (
+        <div className="session-banner rw-info" role="status" data-conn="taken_over">
+          <Icon name="warning" size={13} />
+          <span>{t('conn.takenOver')}</span>
+          <span className="session-banner-spacer" />
+          <ConnectionAction label={t('conn.takenOver.action')} />
+        </div>
+      );
     case 'device_revoked':
+    case 'server_changed':
       // Terminal: rendered as a full-page card by the app shell, not a banner.
       return null;
   }
+}
+
+function ConnectionAction({ label }: { label: string }) {
+  const actions = useRemoteActions();
+  return (
+    <button type="button" className="btn xs secondary" onClick={() => actions.refreshState()}>
+      {label}
+    </button>
+  );
 }
 
 /** UNKNOWN_OUTCOME strip (§14): never a blind retry — refresh only. */
@@ -116,20 +135,48 @@ export function UnknownOutcomeBanner({ commandId }: { commandId: string }) {
 
 /** Full-page terminal card for device_revoked (§7.4: cache cleared, back to
  *  pairing). */
-export function DeviceRevokedPage() {
+const REVOKED_COPY = {
+  revoked: { title: 'pair.revoked.title', desc: 'pair.revoked.desc' },
+  key_missing: { title: 'pair.revoked.keyMissing.title', desc: 'pair.revoked.keyMissing.desc' },
+  host_key_changed: { title: 'pair.revoked.hostKeyChanged.title', desc: 'pair.revoked.hostKeyChanged.desc' },
+} as const;
+
+export function DeviceRevokedPage({ reason = 'revoked' }: { reason?: keyof typeof REVOKED_COPY }) {
   const t = useT();
   const actions = useRemoteActions();
+  const copy = REVOKED_COPY[reason];
   return (
-    <div className="rw-pair" data-conn="device_revoked">
+    <div className="rw-pair" data-conn="device_revoked" data-reason={reason}>
       <div className="rw-pair-card">
         <HostSelector />
         <span className="rw-fail-ico">
           <Icon name="warning" size={15} />
         </span>
-        <span className="rw-fail-title">{t('pair.revoked.title')}</span>
-        <span className="rw-fail-desc">{t('pair.revoked.desc')}</span>
+        <span className="rw-fail-title">{t(copy.title)}</span>
+        <span className="rw-fail-desc">{t(copy.desc)}</span>
         <button type="button" className="btn sm primary" onClick={() => actions.restartPairing()}>
           {t('pair.revoked.action')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Full-page card for a Remote Server whose identity differs from the pin:
+ *  nothing connects until the user decides to trust it. */
+export function ServerChangedPage() {
+  const t = useT();
+  const actions = useRemoteActions();
+  return (
+    <div className="rw-pair" data-conn="server_changed">
+      <div className="rw-pair-card">
+        <span className="rw-fail-ico">
+          <Icon name="warning" size={15} />
+        </span>
+        <span className="rw-fail-title">{t('server.changed.title')}</span>
+        <span className="rw-fail-desc">{t('server.changed.desc')}</span>
+        <button type="button" className="btn sm secondary" onClick={() => actions.trustServerIdentity()}>
+          {t('server.changed.action')}
         </button>
       </div>
     </div>
