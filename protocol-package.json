@@ -2,14 +2,14 @@
   "schema": 1,
   "name": "@gian/remote-protocol",
   "repository": "RichToyo/Gian",
-  "version": "1.5.1",
-  "tag": "remote-protocol-v1.5.1",
-  "filename": "gian-remote-protocol-1.5.1.tgz",
-  "url": "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.1/gian-remote-protocol-1.5.1.tgz",
-  "sourceCommit": "63c406ab38f82c388ee65cf1b20faf1ae751ab14",
-  "size": 103774,
-  "sha256": "5eb2f74671cf7ca743c6a9ea8c89655233c594d5ea021ab67c4a2755a1984c11",
-  "integrity": "sha512-/w8mOhM1dcQdmCn/AXfOcfN1bADgvxlm9i3nUYmztGSXbyLjMLsCGnLrNwussX/YY2eT989p7BDcOa5SxgtpmQ==",
+  "version": "1.6.0",
+  "tag": "remote-protocol-v1.6.0",
+  "filename": "gian-remote-protocol-1.6.0.tgz",
+  "url": "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.6.0/gian-remote-protocol-1.6.0.tgz",
+  "sourceCommit": "767f7c8580cac28a195d9559b1e37fe11f59512e",
+  "size": 107896,
+  "sha256": "9f8baaa74e384a50f5e1a3b897f1513ed1a1b0e5520db3069993cb4375c774fc",
+  "integrity": "sha512-fcqW0o0MkEA4obvIYR62rIwH7VsOHgNJqhvz8S0p7s6bGVHdeBJxY2UU7p5MlWA4qqg+qMnKGukpbsitINUs0Q==",
   "dependencies": {
     "zod": "4.6.6"
   }

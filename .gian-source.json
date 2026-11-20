@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "product": "Gian Remote",
-  "sourceRepository": "RichToyo/Gian",
-  "sourceCommit": "4c01ad7aaf585d47bfd84eacd49da492a97caad7",
+  "sourceRepository": "RichToyo/Gian-Dev",
+  "sourceCommit": "c587b6787013215380fed898c6e047bde5c475ec",
   "workingTree": false,
   "sharedPackages": [
     "shared",
@@ -13,14 +13,14 @@
       "schema": 1,
       "name": "@gian/remote-protocol",
       "repository": "RichToyo/Gian",
-      "version": "1.5.1",
-      "tag": "remote-protocol-v1.5.1",
-      "filename": "gian-remote-protocol-1.5.1.tgz",
-      "url": "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.5.1/gian-remote-protocol-1.5.1.tgz",
-      "sourceCommit": "63c406ab38f82c388ee65cf1b20faf1ae751ab14",
-      "size": 103774,
-      "sha256": "5eb2f74671cf7ca743c6a9ea8c89655233c594d5ea021ab67c4a2755a1984c11",
-      "integrity": "sha512-/w8mOhM1dcQdmCn/AXfOcfN1bADgvxlm9i3nUYmztGSXbyLjMLsCGnLrNwussX/YY2eT989p7BDcOa5SxgtpmQ==",
+      "version": "1.6.0",
+      "tag": "remote-protocol-v1.6.0",
+      "filename": "gian-remote-protocol-1.6.0.tgz",
+      "url": "https://github.com/RichToyo/Gian/releases/download/remote-protocol-v1.6.0/gian-remote-protocol-1.6.0.tgz",
+      "sourceCommit": "767f7c8580cac28a195d9559b1e37fe11f59512e",
+      "size": 107896,
+      "sha256": "9f8baaa74e384a50f5e1a3b897f1513ed1a1b0e5520db3069993cb4375c774fc",
+      "integrity": "sha512-fcqW0o0MkEA4obvIYR62rIwH7VsOHgNJqhvz8S0p7s6bGVHdeBJxY2UU7p5MlWA4qqg+qMnKGukpbsitINUs0Q==",
       "dependencies": {
         "zod": "4.6.6"
       }
@@ -90,7 +90,7 @@
     {
       "source": "delivery/remote/protocol-package.json",
       "path": "protocol-package.json",
-      "sha256": "16e0f95140e05ab64aea8e7b01f1cdf8ca4c43d8b77912536b73c3711eba7e14"
+      "sha256": "4ec389b1c77819c79720dd93c58d4af8d9292017080e992a39faa0480291fc73"
     },
     {
       "source": "delivery/remote/release.json",
@@ -1430,12 +1430,12 @@
     {
       "source": "pnpm-lock.yaml",
       "path": "pnpm-lock.yaml",
-      "sha256": "d71a96ae0cc04c9a263e069cedaa02e05b0236601033025fb823b0957cf70d9a"
+      "sha256": "3d7d95152276c0fdb7d3304d57260575fff3acc0d72e7c203020ae1167e980b8"
     },
     {
       "source": "pnpm-workspace.yaml",
       "path": "pnpm-workspace.yaml",
-      "sha256": "4837dd9228c00ae08e850321b07fcd1049a84ce02b27e76b70ab821e3fad6490"
+      "sha256": "0d0c0d196cc3edcb79f9cd413fd7811abc4713a201f056accab3bb2ffe0153e9"
     },
     {
       "source": "scripts/check-node.js",
@@ -1827,7 +1827,7 @@
     {
       "path": "packages/remote-server/package.json",
       "mode": 420,
-      "sha256": "fe605cf7bc80f23ec10912f533b4dc9797c84808259d8f7a2ce630c222d77c91"
+      "sha256": "ac940786b14ecc8fb6c228dd09164b8b255f0bcf0d6aae83704c130ad2c28218"
     },
     {
       "path": "packages/remote-server/src/app.ts",
@@ -2072,7 +2072,7 @@
     {
       "path": "packages/remote-web/package.json",
       "mode": 420,
-      "sha256": "14f92ca19951155e8cbf81cb1ec24532e758aee5bd30d888e255678c0be1a07d"
+      "sha256": "cb7d527c6104a02e4f4271fa0a31c61be3d1738efbe4dc39a0d0446391f5f87e"
     },
     {
       "path": "packages/remote-web/scripts/write-static-manifest.mjs",
@@ -2777,17 +2777,17 @@
     {
       "path": "pnpm-lock.yaml",
       "mode": 420,
-      "sha256": "cc254d39a1d2aeb1d759affde305289191fa911eac0a74f332eadcd4751f05cd"
+      "sha256": "917423e92e7cfba3305ad994a606f605ee7bc97116c4fecd46d4383bf1e83421"
     },
     {
       "path": "pnpm-workspace.yaml",
       "mode": 420,
-      "sha256": "40a41614b855fc2af44e310f9e175db3039d2024e0d3f8a57b892929384732f8"
+      "sha256": "97e2a91c113092bcdd7f12316a4aa520daf5c260ac5683d06918f0075f188be2"
     },
     {
       "path": "protocol-package.json",
       "mode": 420,
-      "sha256": "16e0f95140e05ab64aea8e7b01f1cdf8ca4c43d8b77912536b73c3711eba7e14"
+      "sha256": "4ec389b1c77819c79720dd93c58d4af8d9292017080e992a39faa0480291fc73"
     },
     {
       "path": "README.md",
