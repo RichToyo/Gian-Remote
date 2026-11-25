@@ -1,5 +1,7 @@
 {
   "schema": 1,
+  "exportedReleaseVersion": "1.6.0",
+  "releasePolicySha256": "c707d5d5203a93b1431ac913e0fa8ed42f37241ba38deb8c54be8a6fa70254b1",
   "product": "Gian Remote",
   "sourceRepository": "RichToyo/Gian-Dev",
   "sourceCommit": "c587b6787013215380fed898c6e047bde5c475ec",
