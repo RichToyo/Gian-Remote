@@ -1,5 +1,11 @@
 # Gian Remote Changelog
 
+## [1.6.1] - 2026-11-25
+
+- Refresh Remote Web with multi-file uploads, paste and drop, upload progress and image previews.
+- Improve second-tab handling, duplicate-send prevention and reconnect recovery.
+- Update Remote Protocol to 1.6.0; default handshakes remain unchanged.
+
 ## [1.6.0] - 2026-11-16
 
 - Apply authentication rate limits by client address and proven identity, and
